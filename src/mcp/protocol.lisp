@@ -27,32 +27,42 @@
 (defun handle-request (request session)
   "Handle a JSON-RPC request. Returns a response object."
   (handler-case
-      (let ((jsonrpc (json-object-get request "jsonrpc"))
-            (method (json-object-get request "method"))
-            (params (json-object-get request "params"))
-            (id (json-object-get request "id")))
+      (let* ((jsonrpc (json-object-get request "jsonrpc"))
+             (method (json-object-get request "method"))
+             (params (json-object-get request "params"))
+             (id (json-object-get request "id"))
+             (notification-p (null id))
+             response)
 
         ;; Validate JSON-RPC version
         (unless (equal jsonrpc "2.0")
-          (return-from handle-request
-            (make-error-response id +invalid-request+ "Invalid JSON-RPC version")))
+          (setf response
+                (make-error-response id +invalid-request+ "Invalid JSON-RPC version")))
 
-        ;; Dispatch based on method
-        (let ((response (dispatch-method method params session id)))
-          ;; If id is nil, this is a notification and we don't send a response
-          (if (and (null id) (not (json-object-get response "error")))
-              nil
-              response)))
+        ;; Dispatch based on method (only if no prior error)
+        (unless response
+          (setf response (dispatch-method method params session id)))
+
+        ;; Notifications must not receive any response (even on error)
+        (if notification-p
+            nil
+            response))
 
     (mcp-error (e)
-      (make-error-response (json-object-get request "id")
-                           (mcp-error-code e)
-                           (mcp-error-message e)
-                           (mcp-error-data e)))
+      (let ((id (json-object-get request "id")))
+        (if (null id)
+            nil
+            (make-error-response id
+                                 (mcp-error-code e)
+                                 (mcp-error-message e)
+                                 (mcp-error-data e)))))
     (error (e)
-      (make-error-response (json-object-get request "id")
-                           +internal-error+
-                           (format nil "Internal error: ~A" e)))))
+      (let ((id (json-object-get request "id")))
+        (if (null id)
+            nil
+            (make-error-response id
+                                 +internal-error+
+                                 (format nil "Internal error: ~A" e)))))))
 
 (defun dispatch-method (method params session id)
   "Dispatch a request to the appropriate handler based on METHOD."
@@ -170,7 +180,7 @@
    "jsonrpc" "2.0"
    "id" id
    "result" (make-json-object
-             "resources" nil)))
+             "resources" #())))
 
 (defun handle-resources-read (params id)
   "Handle the resources/read request."
@@ -187,7 +197,7 @@
    "jsonrpc" "2.0"
    "id" id
    "result" (make-json-object
-             "prompts" nil)))
+             "prompts" #())))
 
 ;;; ------------------------------------------------------------------
 ;;; JSON-RPC Response Utilities

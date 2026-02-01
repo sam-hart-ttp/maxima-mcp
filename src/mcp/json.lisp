@@ -12,14 +12,18 @@
 ;;; ------------------------------------------------------------------
 
 ;; Configure yason to handle symbols properly
+(defun json-raw (value)
+  "Return VALUE as raw JSON output (no string escaping)."
+  (yason::make-raw-json-output value))
+
 (defun json-symbol-encoder (symbol)
   "Encode Lisp symbols as JSON values."
   (cond
-    ((eq symbol t) "true")
-    ((eq symbol nil) "null")
-    ((eq symbol :null) "null")
-    ((eq symbol :false) "false")
-    ((eq symbol :true) "true")
+    ((eq symbol t) (json-raw "true"))
+    ((eq symbol nil) (json-raw "null"))
+    ((eq symbol :null) (json-raw "null"))
+    ((eq symbol :false) (json-raw "false"))
+    ((eq symbol :true) (json-raw "true"))
     ((keywordp symbol) (string-downcase (symbol-name symbol)))
     (t (string-downcase (symbol-name symbol)))))
 
@@ -49,7 +53,7 @@
                :object-key-fn #'identity
                :object-as :hash-table
                :json-arrays-as-vectors nil
-               :json-booleans-as-symbols t
+               :json-booleans-as-symbols nil
                :json-nulls-as-keyword t))
 
 (defun json-decode-string (string)

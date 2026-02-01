@@ -8,7 +8,9 @@ using JSON-RPC 2.0 over stdio.
 import json
 import subprocess
 import os
-from typing import Any, Dict, List, Optional, Union
+import threading
+from collections import deque
+from typing import Any, Deque, Dict, List, Optional, Union
 
 
 class MaximaError(Exception):
@@ -53,6 +55,8 @@ class MaximaMCPClient:
         self._process: Optional[subprocess.Popen] = None
         self._request_id = 0
         self._initialized = False
+        self._stderr_thread: Optional[threading.Thread] = None
+        self._stderr_buffer: Deque[str] = deque(maxlen=50)
 
         if server_command:
             self._server_command = server_command
@@ -107,6 +111,21 @@ class MaximaMCPClient:
             bufsize=1,  # Line buffered
         )
         self._initialized = False
+        self._start_stderr_reader()
+
+    def _start_stderr_reader(self):
+        """Drain stderr to avoid blocking the server subprocess."""
+        if self._process is None or self._process.stderr is None:
+            return
+
+        def _drain():
+            for line in self._process.stderr:
+                if not line:
+                    break
+                self._stderr_buffer.append(line.rstrip("\n"))
+
+        self._stderr_thread = threading.Thread(target=_drain, daemon=True)
+        self._stderr_thread.start()
 
     def _send_request(
         self, method: str, params: Optional[Dict[str, Any]] = None
@@ -129,10 +148,22 @@ class MaximaMCPClient:
 
         # Read response
         response_line = self._process.stdout.readline()
+        while response_line is not None and response_line.strip() == "":
+            response_line = self._process.stdout.readline()
         if not response_line:
-            raise MaximaError("Server disconnected unexpectedly")
+            raise MaximaError(self._format_disconnect_error("Server disconnected unexpectedly"))
 
-        response = json.loads(response_line)
+        try:
+            response = json.loads(response_line)
+        except json.JSONDecodeError as exc:
+            raise MaximaError(self._format_disconnect_error(f"Invalid JSON from server: {exc}"))
+
+        if response.get("id") != self._request_id:
+            raise MaximaError(
+                self._format_disconnect_error(
+                    f"Out-of-sequence response id {response.get('id')} (expected {self._request_id})"
+                )
+            )
 
         # Check for errors
         if "error" in response:
@@ -188,6 +219,13 @@ class MaximaMCPClient:
             self._process.terminate()
             self._process.wait()
             self._process = None
+
+    def _format_disconnect_error(self, message: str) -> str:
+        """Attach recent stderr output to an error message."""
+        if not self._stderr_buffer:
+            return message
+        tail = "\n".join(self._stderr_buffer)
+        return f"{message}\n--- server stderr (tail) ---\n{tail}"
 
     def __enter__(self):
         return self
