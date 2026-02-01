@@ -8,10 +8,10 @@ using JSON-RPC 2.0 over stdio.
 import json
 import subprocess
 import os
-import select
 import sys
 import threading
 from collections import deque
+from queue import Queue, Empty
 from typing import Any, Deque, Dict, List, Optional, Union
 
 
@@ -68,7 +68,8 @@ class MaximaMCPClient:
         self._stderr_buffer: Deque[str] = deque(maxlen=50)
         self._stderr_lock = threading.Lock()
         self._timeout = timeout
-        self._is_windows = sys.platform == "win32"
+        self._stdout_queue: Queue[Optional[str]] = Queue()
+        self._stdout_thread: Optional[threading.Thread] = None
 
         if server_command:
             self._server_command = server_command
@@ -123,7 +124,28 @@ class MaximaMCPClient:
             bufsize=1,  # Line buffered
         )
         self._initialized = False
+        self._stdout_queue = Queue()
+        self._start_stdout_reader()
         self._start_stderr_reader()
+
+    def _start_stdout_reader(self):
+        """Read stdout lines into a queue for timeout support."""
+        if self._process is None or self._process.stdout is None:
+            return
+
+        def _read_lines():
+            try:
+                for line in self._process.stdout:
+                    self._stdout_queue.put(line)
+            except ValueError:
+                # Pipe closed
+                pass
+            finally:
+                # Signal EOF
+                self._stdout_queue.put(None)
+
+        self._stdout_thread = threading.Thread(target=_read_lines, daemon=True)
+        self._stdout_thread.start()
 
     def _start_stderr_reader(self):
         """Drain stderr to avoid blocking the server subprocess."""
@@ -152,21 +174,16 @@ class MaximaMCPClient:
         Raises:
             MaximaTimeoutError: If the read times out.
         """
-        if self._process is None or self._process.stdout is None:
+        if self._process is None:
             return None
 
-        if timeout is None or self._is_windows:
-            # No timeout or Windows (select doesn't work on pipes)
-            return self._process.stdout.readline()
-
-        # Use select for timeout on Unix
-        stdout_fd = self._process.stdout.fileno()
-        ready, _, _ = select.select([stdout_fd], [], [], timeout)
-        if not ready:
+        try:
+            line = self._stdout_queue.get(timeout=timeout)
+            return line
+        except Empty:
             raise MaximaTimeoutError(
                 self._format_disconnect_error(f"Request timed out after {timeout} seconds")
             )
-        return self._process.stdout.readline()
 
     def _send_request(
         self,
@@ -295,12 +312,42 @@ class MaximaMCPClient:
         return ""
 
     def close(self):
-        """Close the connection to the server."""
+        """Close the connection to the server gracefully."""
         if self._process:
-            self._process.stdin.close()
-            self._process.terminate()
-            self._process.wait()
+            # Send shutdown notification if we were initialized
+            if self._initialized:
+                try:
+                    # Send shutdown notification (no response expected per MCP spec)
+                    shutdown_request = {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/shutdown",
+                    }
+                    self._process.stdin.write(json.dumps(shutdown_request) + "\n")
+                    self._process.stdin.flush()
+                except (BrokenPipeError, OSError):
+                    # Server may already be gone
+                    pass
+
+            # Close stdin to signal EOF to the server
+            try:
+                self._process.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+
+            # Give the server a moment to exit gracefully
+            try:
+                self._process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                # Force terminate if it doesn't exit
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                    self._process.wait()
+
             self._process = None
+            self._initialized = False
 
     def _format_disconnect_error(self, message: str) -> str:
         """Attach recent stderr output to an error message."""

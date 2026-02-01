@@ -375,8 +375,48 @@ where we read the file while gnuplot is still writing to it."
   (run-plot session arguments))
 
 ;;; ------------------------------------------------------------------
-;;; draw2d / draw3d - draw package plotting
+;;; draw2d / draw3d / drawdf - Shared implementation
 ;;; ------------------------------------------------------------------
+
+(defun run-draw (fn-name objects options output width height &key load-fn window-message)
+  "Shared implementation for draw2d, draw3d, and drawdf tools.
+FN-NAME is the Maxima function name (draw2d, draw3d, or drawdf).
+OBJECTS is the list of graphic objects to draw.
+LOAD-FN is called to ensure the required package is loaded.
+WINDOW-MESSAGE is the success message for window output."
+  (when load-fn (funcall load-fn))
+  (let ((mode (choose-output-mode output)))
+    (cond
+      ((not mode)
+       (wrap-text-content "Plotting output not supported in this environment." :is-error t))
+      ((eq mode :png)
+       (if (not (program-exists-p "gnuplot"))
+           (wrap-text-content "PNG output requires gnuplot, which was not found." :is-error t)
+           (let* ((tmpdir (uiop:temporary-directory))
+                  (png-path (merge-pathnames (format nil "maxima-mcp-~A-~A.png" fn-name (get-universal-time)) tmpdir))
+                  (opt-str (make-draw-options :png png-path width height options))
+                  (expr (build-draw-expression fn-name opt-str objects)))
+             (multiple-value-bind (result err) (parse-and-eval expr)
+               (declare (ignore result))
+               (if err
+                   (wrap-text-content err :is-error t)
+                   (unwind-protect
+                       (if (wait-for-nonempty-file png-path)
+                           (let* ((bytes (read-file-bytes png-path))
+                                  (b64 (base64-encode-bytes bytes)))
+                             (wrap-image-content b64 :mime-type "image/png"))
+                           (wrap-text-content (format nil "~A output file was not created." fn-name) :is-error t))
+                     (ignore-errors (delete-file png-path))))))))
+      ((eq mode :window)
+       (if (not (display-available-p))
+           (wrap-text-content "Window output requires a display." :is-error t)
+           (let* ((opt-str (make-draw-options :window nil nil nil options))
+                  (expr (build-draw-expression fn-name opt-str objects)))
+             (multiple-value-bind (result err) (parse-and-eval expr)
+               (declare (ignore result))
+               (if err
+                   (wrap-text-content err :is-error t)
+                   (wrap-text-content (or window-message (format nil "~A sent to window backend." fn-name)))))))))))
 
 (define-mcp-tool "draw2d"
     (:description "Render a 2D draw scene (draw package).")
@@ -385,47 +425,15 @@ where we read the file while gnuplot is still writing to it."
    ("output" "string" :description "Output mode: png, window, or auto" :required nil)
    ("width" "number" :description "PNG width in pixels" :required nil)
    ("height" "number" :description "PNG height in pixels" :required nil))
-  (let* ((objects (get-argument arguments "objects"))
-         (options (get-argument arguments "options"))
-         (output (get-argument arguments "output"))
-         (width (get-argument arguments "width"))
-         (height (get-argument arguments "height")))
+  (let ((objects (get-argument arguments "objects")))
     (unless (and objects (listp objects))
       (signal-mcp-error +invalid-params+ "Missing required parameter: objects"))
-    (ensure-draw-loaded)
-    (let ((mode (choose-output-mode output)))
-      (cond
-        ((not mode)
-         (wrap-text-content "Plotting output not supported in this environment." :is-error t))
-        ((eq mode :png)
-         (if (not (program-exists-p "gnuplot"))
-             (wrap-text-content "PNG output requires gnuplot, which was not found." :is-error t)
-             (let* ((tmpdir (uiop:temporary-directory))
-                    (png-path (merge-pathnames (format nil "maxima-mcp-draw2d-~A.png" (get-universal-time)) tmpdir))
-                    (opt-str (make-draw-options :png png-path width height options))
-                    (expr (build-draw-expression "draw2d" opt-str objects)))
-               (multiple-value-bind (result err) (parse-and-eval expr)
-                 (declare (ignore result))
-                 (if err
-                     (wrap-text-content err :is-error t)
-                     (unwind-protect
-                         (if (and (uiop:file-exists-p png-path)
-                                  (> (or (ignore-errors (with-open-file (s png-path :direction :input :element-type '(unsigned-byte 8)) (file-length s))) 0) 0))
-                             (let* ((bytes (read-file-bytes png-path))
-                                    (b64 (base64-encode-bytes bytes)))
-                               (wrap-image-content b64 :mime-type "image/png"))
-                             (wrap-text-content "Draw output file was not created." :is-error t))
-                       (ignore-errors (delete-file png-path))))))))
-        ((eq mode :window)
-         (if (not (display-available-p))
-             (wrap-text-content "Window output requires a display." :is-error t)
-             (let* ((opt-str (make-draw-options :window nil nil nil options))
-                    (expr (build-draw-expression "draw2d" opt-str objects)))
-               (multiple-value-bind (result err) (parse-and-eval expr)
-                 (declare (ignore result))
-                 (if err
-                     (wrap-text-content err :is-error t)
-                     (wrap-text-content "Draw2d sent to window backend."))))))))))
+    (run-draw "draw2d" objects
+              (get-argument arguments "options")
+              (get-argument arguments "output")
+              (get-argument arguments "width")
+              (get-argument arguments "height")
+              :load-fn #'ensure-draw-loaded)))
 
 (define-mcp-tool "draw3d"
     (:description "Render a 3D draw scene (draw package).")
@@ -434,51 +442,15 @@ where we read the file while gnuplot is still writing to it."
    ("output" "string" :description "Output mode: png, window, or auto" :required nil)
    ("width" "number" :description "PNG width in pixels" :required nil)
    ("height" "number" :description "PNG height in pixels" :required nil))
-  (let* ((objects (get-argument arguments "objects"))
-         (options (get-argument arguments "options"))
-         (output (get-argument arguments "output"))
-         (width (get-argument arguments "width"))
-         (height (get-argument arguments "height")))
+  (let ((objects (get-argument arguments "objects")))
     (unless (and objects (listp objects))
       (signal-mcp-error +invalid-params+ "Missing required parameter: objects"))
-    (ensure-draw-loaded)
-    (let ((mode (choose-output-mode output)))
-      (cond
-        ((not mode)
-         (wrap-text-content "Plotting output not supported in this environment." :is-error t))
-        ((eq mode :png)
-         (if (not (program-exists-p "gnuplot"))
-             (wrap-text-content "PNG output requires gnuplot, which was not found." :is-error t)
-             (let* ((tmpdir (uiop:temporary-directory))
-                    (png-path (merge-pathnames (format nil "maxima-mcp-draw3d-~A.png" (get-universal-time)) tmpdir))
-                    (opt-str (make-draw-options :png png-path width height options))
-                    (expr (build-draw-expression "draw3d" opt-str objects)))
-               (multiple-value-bind (result err) (parse-and-eval expr)
-                 (declare (ignore result))
-                 (if err
-                     (wrap-text-content err :is-error t)
-                     (unwind-protect
-                         (if (and (uiop:file-exists-p png-path)
-                                  (> (or (ignore-errors (with-open-file (s png-path :direction :input :element-type '(unsigned-byte 8)) (file-length s))) 0) 0))
-                             (let* ((bytes (read-file-bytes png-path))
-                                    (b64 (base64-encode-bytes bytes)))
-                               (wrap-image-content b64 :mime-type "image/png"))
-                             (wrap-text-content "Draw output file was not created." :is-error t))
-                       (ignore-errors (delete-file png-path))))))))
-        ((eq mode :window)
-         (if (not (display-available-p))
-             (wrap-text-content "Window output requires a display." :is-error t)
-             (let* ((opt-str (make-draw-options :window nil nil nil options))
-                    (expr (build-draw-expression "draw3d" opt-str objects)))
-               (multiple-value-bind (result err) (parse-and-eval expr)
-                 (declare (ignore result))
-                 (if err
-                     (wrap-text-content err :is-error t)
-                     (wrap-text-content "Draw3d sent to window backend."))))))))))
-
-;;; ------------------------------------------------------------------
-;;; drawdf - Direction field plotting (drawdf package)
-;;; ------------------------------------------------------------------
+    (run-draw "draw3d" objects
+              (get-argument arguments "options")
+              (get-argument arguments "output")
+              (get-argument arguments "width")
+              (get-argument arguments "height")
+              :load-fn #'ensure-draw-loaded)))
 
 (define-mcp-tool "drawdf"
     (:description "Render a direction field using drawdf (drawdf package).")
@@ -489,50 +461,18 @@ where we read the file while gnuplot is still writing to it."
    ("output" "string" :description "Output mode: png, window, or auto" :required nil)
    ("width" "number" :description "PNG width in pixels" :required nil)
    ("height" "number" :description "PNG height in pixels" :required nil))
-  (let* ((field (get-argument arguments "field"))
-         (x-range (get-argument arguments "x_range"))
-         (y-range (get-argument arguments "y_range"))
-         (options (get-argument arguments "options"))
-         (output (get-argument arguments "output"))
-         (width (get-argument arguments "width"))
-         (height (get-argument arguments "height"))
-         (objs (remove nil (list field x-range y-range))))
+  (let ((field (get-argument arguments "field")))
     (unless field
       (signal-mcp-error +invalid-params+ "Missing required parameter: field"))
-    (ensure-drawdf-loaded)
-    (let ((mode (choose-output-mode output)))
-      (cond
-        ((not mode)
-         (wrap-text-content "Plotting output not supported in this environment." :is-error t))
-        ((eq mode :png)
-         (if (not (program-exists-p "gnuplot"))
-             (wrap-text-content "PNG output requires gnuplot, which was not found." :is-error t)
-             (let* ((tmpdir (uiop:temporary-directory))
-                    (png-path (merge-pathnames (format nil "maxima-mcp-drawdf-~A.png" (get-universal-time)) tmpdir))
-                    (opt-str (make-draw-options :png png-path width height options))
-                    (expr (build-draw-expression "drawdf" opt-str objs)))
-               (multiple-value-bind (result err) (parse-and-eval expr)
-                 (declare (ignore result))
-                 (if err
-                     (wrap-text-content err :is-error t)
-                     (unwind-protect
-                         (if (and (uiop:file-exists-p png-path)
-                                  (> (or (ignore-errors (with-open-file (s png-path :direction :input :element-type '(unsigned-byte 8)) (file-length s))) 0) 0))
-                             (let* ((bytes (read-file-bytes png-path))
-                                    (b64 (base64-encode-bytes bytes)))
-                               (wrap-image-content b64 :mime-type "image/png"))
-                             (wrap-text-content "Drawdf output file was not created." :is-error t))
-                       (ignore-errors (delete-file png-path))))))))
-        ((eq mode :window)
-         (if (not (display-available-p))
-             (wrap-text-content "Window output requires a display." :is-error t)
-             (let* ((opt-str (make-draw-options :window nil nil nil options))
-                    (expr (build-draw-expression "drawdf" opt-str objs)))
-               (multiple-value-bind (result err) (parse-and-eval expr)
-                 (declare (ignore result))
-                 (if err
-                     (wrap-text-content err :is-error t)
-                     (wrap-text-content "Drawdf sent to window backend."))))))))))
+    (run-draw "drawdf"
+              (remove nil (list field
+                                (get-argument arguments "x_range")
+                                (get-argument arguments "y_range")))
+              (get-argument arguments "options")
+              (get-argument arguments "output")
+              (get-argument arguments "width")
+              (get-argument arguments "height")
+              :load-fn #'ensure-drawdf-loaded)))))
 
 ;;; ------------------------------------------------------------------
 ;;; with_slider_draw - Interactive slider helper (not supported headless)
