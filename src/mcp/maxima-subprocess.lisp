@@ -8,6 +8,10 @@
 
 (in-package :maxima-mcp)
 
+;; Ensure UIOP is available for portable process management
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (require :asdf))
+
 ;;; ------------------------------------------------------------------
 ;;; Variables
 ;;; ------------------------------------------------------------------
@@ -27,19 +31,15 @@
 
 (defun launch-maxima-process ()
   "Launch Maxima as a subprocess. Returns (process input-stream output-stream)."
-  #+sbcl
-  (let ((process (sb-ext:run-program "maxima"
-                                      nil  ; No args - we'll configure inline
-                                      :input :stream
-                                      :output :stream
-                                      :error :output
-                                      :wait nil
-                                      :search t)))
+  (let ((process (uiop:launch-program
+                  '("maxima")
+                  :input :stream
+                  :output :stream
+                  :error-output :output
+                  :wait nil)))
     (values process
-            (sb-ext:process-input process)
-            (sb-ext:process-output process)))
-  #-sbcl
-  (error "Subprocess backend only implemented for SBCL"))
+            (uiop:process-info-input process)
+            (uiop:process-info-output process))))
 
 ;;; ------------------------------------------------------------------
 ;;; Low-level I/O Functions
@@ -105,9 +105,10 @@
   (when *maxima-process*
     (ignore-errors
       (write-to-maxima "quit();"))
-    #+sbcl
     (ignore-errors
-      (sb-ext:process-close *maxima-process*))
+      (uiop:terminate-process *maxima-process*))
+    (ignore-errors
+      (uiop:wait-process *maxima-process*))
     (setf *maxima-process* nil
           *maxima-input* nil
           *maxima-output* nil)))
@@ -115,7 +116,7 @@
 (defun ensure-maxima-subprocess ()
   "Ensure the Maxima subprocess is running."
   (unless (and *maxima-process*
-               #+sbcl (sb-ext:process-alive-p *maxima-process*))
+               (uiop:process-alive-p *maxima-process*))
     (start-maxima-subprocess)))
 
 ;;; ------------------------------------------------------------------

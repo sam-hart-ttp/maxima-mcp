@@ -45,6 +45,51 @@ set `MAXIMA_MCP_USE_CORE=1`:
 MAXIMA_MCP_USE_CORE=1 sbcl --load build-standalone.lisp
 ```
 
+### ECL (Standalone)
+
+If Maxima is not already installed as a library, Quicklisp will fetch it.
+
+```bash
+cd src/mcp
+ecl --load build-standalone-ecl.lisp
+```
+
+If you want to use the subprocess backend (system `maxima` binary) instead
+of the Maxima library, build the subprocess executable:
+
+```bash
+cd src/mcp
+ecl --load build-standalone-ecl-subprocess.lisp
+```
+
+### ABCL (Jar / Wrapper)
+
+ABCL does not produce a native executable. The recommended approach is
+to run via `abcl` or a wrapper script.
+
+To build jar artifacts and wrappers:
+
+```bash
+cd src/mcp
+abcl --load build-abcl-jar.lisp
+```
+
+This produces:
+- `maxima-mcp-lib.jar` (the packaged ASDF system)
+- `maxima-mcp.jar` (a launcher jar that relies on `abcl.jar` nearby)
+- `maxima-mcp-abcl` and `maxima-mcp-abcl-subprocess` wrapper scripts (recommended)
+
+Note: `maxima-mcp.jar` starts ABCL but does not automatically invoke
+`maxima-mcp:main`. Use the wrapper scripts to start the MCP server.
+The wrappers expect `abcl.jar` to be alongside the jars.
+
+If Maxima cannot be loaded as a library in ABCL, build with
+`MAXIMA_MCP_SUBPROCESS=1` to package the subprocess backend instead:
+
+```bash
+MAXIMA_MCP_SUBPROCESS=1 abcl --load build-abcl-jar.lisp
+```
+
 ### Pre-built Executable
 
 Download from the releases page (if available).

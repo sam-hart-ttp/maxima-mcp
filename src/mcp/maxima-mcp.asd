@@ -37,7 +37,7 @@
 (defsystem "maxima-mcp/test"
   :description "Maxima MCP with subprocess backend for testing"
   :version "0.1.0"
-  :depends-on ("yason")
+  :depends-on ("yason" "uiop")
   :serial t
   :pathname ""
   :components
