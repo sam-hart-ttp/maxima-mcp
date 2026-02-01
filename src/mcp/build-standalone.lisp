@@ -31,6 +31,73 @@
 (format t "Root directory: ~A~%" *root-dir*)
 
 ;;; ------------------------------------------------------------------
+;;; Optional: Use Prebuilt Core (opt-in)
+;;; ------------------------------------------------------------------
+
+(defparameter *maxima-core-path*
+  (merge-pathnames "binary-sbcl/maxima-base.core" *src-dir*)
+  "Path to a prebuilt Maxima core, if available.")
+
+#+sbcl
+(when (and (probe-file *maxima-core-path*)
+           (string= (or (sb-ext:posix-getenv "MAXIMA_MCP_USE_CORE") "") "1"))
+  (format t "~%Found Maxima core at ~A~%" *maxima-core-path*)
+  (format t "Using build-with-core.lisp (MAXIMA_MCP_USE_CORE=1).~%")
+  (let* ((sbcl (or (and (boundp 'sb-ext:*posix-argv*)
+                        (first sb-ext:*posix-argv*))
+                   "sbcl"))
+         (build-script (merge-pathnames "build-with-core.lisp" *mcp-dir*))
+         (output-path (merge-pathnames "maxima-mcp" *root-dir*))
+         (args (list "--core" (namestring *maxima-core-path*)
+                     "--noinform"
+                     "--eval" (format nil "(load ~S)" (namestring build-script))
+                     "--eval" (format nil "(build-maxima-mcp ~S)" (namestring output-path))
+                     "--quit")))
+    (sb-ext:run-program sbcl args
+                        :output t
+                        :error t
+                        :search t
+                        :directory (namestring *mcp-dir*))
+    (format t "~%Build completed using prebuilt core.~%")
+    (sb-ext:exit :code 0)))
+
+;;; ------------------------------------------------------------------
+;;; Re-exec with Larger Control Stack (to avoid stack exhaustion)
+;;; ------------------------------------------------------------------
+
+#+sbcl
+(let* ((requested-stack-mb (or (sb-ext:posix-getenv "MAXIMA_MCP_CONTROL_STACK_MB") "512"))
+       (requested-dyn-mb (or (sb-ext:posix-getenv "MAXIMA_MCP_DYNAMIC_SPACE_MB") "4096"))
+       (reexec (sb-ext:posix-getenv "MAXIMA_MCP_REEXEC")))
+  (when (and (not reexec)
+             (or (string/= requested-stack-mb "") (string/= requested-dyn-mb "")))
+    (let* ((stack-mb (parse-integer requested-stack-mb :junk-allowed t))
+           (stack-kb (if stack-mb (* stack-mb 1024) 524288))
+           (dyn-mb (parse-integer requested-dyn-mb :junk-allowed t)))
+      (format t "~%Re-executing SBCL with --control-stack-size ~A KB and --dynamic-space-size ~A MB...~%"
+              stack-kb (or dyn-mb 4096))
+      (let* ((sbcl (or (and (boundp 'sb-ext:*posix-argv*)
+                            (first sb-ext:*posix-argv*))
+                       "sbcl"))
+             (script (namestring *load-truename*))
+             (args (append (list "--control-stack-size" (princ-to-string stack-kb))
+                           (when dyn-mb (list "--dynamic-space-size" (princ-to-string dyn-mb)))
+                           (list "--noinform"
+                                 "--non-interactive"
+                                 "--load" script)))
+             (env (cons "MAXIMA_MCP_REEXEC=1" (sb-ext:posix-environ))))
+        (sb-ext:run-program sbcl args
+                            :output t
+                            :error t
+                            :search t
+                            :environment env)
+        (sb-ext:exit :code 0)))))
+
+;;; ------------------------------------------------------------------
+;;; Core Files
+;;; ------------------------------------------------------------------
+
+;;; ------------------------------------------------------------------
 ;;; Load Quicklisp
 ;;; ------------------------------------------------------------------
 

@@ -856,6 +856,21 @@ maxima [options] --batch-string='batch_answers_from_file:false; ...'
 ;;; Now that all of maxima has been loaded, define the various lists
 ;;; and hashtables of builtin symbols and values.
 
+;; Copy lists safely even if circular structures exist in plists.
+(defun copy-tree-safe (obj)
+  (let ((seen (make-hash-table :test #'eq)))
+    (labels ((copy (x)
+               (cond
+                 ((consp x)
+                  (or (gethash x seen)
+                      (let ((cell (cons nil nil)))
+                        (setf (gethash x seen) cell)
+                        (setf (car cell) (copy (car x))
+                              (cdr cell) (copy (cdr x)))
+                        cell)))
+                 (t x))))
+      (copy obj))))
+
 ;;; The assume database structures for numeric constants such as $%pi and $%e
 ;;; are circular.  Attempting to copy a circular structure
 ;;; into *builtin-symbol-props* would cause a hang.  Therefore
@@ -870,7 +885,7 @@ maxima [options] --batch-string='batch_answers_from_file:false; ...'
       (push s *builtin-symbols*)
       (optimize-symbol-plist s)
       (setf (gethash s *builtin-symbol-props*)
-	    (copy-tree (symbol-plist s))))))
+	    (copy-tree-safe (symbol-plist s))))))
 
 ;; Also store the property lists for symbols associated with operators;
 ;; e.g. MPLUS, MTIMES, etc.
@@ -887,7 +902,7 @@ maxima [options] --batch-string='batch_answers_from_file:false; ...'
             (push s1 *builtin-symbols*)
             (optimize-symbol-plist s1)
             (setf (gethash s1 *builtin-symbol-props*)
-                  (copy-tree (symbol-plist s1)))))))))
+                  (copy-tree-safe (symbol-plist s1)))))))))
 
 ;; Initialize assume database for $%pi, $%e, etc
 (dolist (c *builtin-numeric-constants*)

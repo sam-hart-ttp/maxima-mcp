@@ -27,6 +27,24 @@ sbcl --load build-standalone.lisp
 
 This creates the `maxima-mcp` executable in the project root.
 
+#### Build Tuning (SBCL)
+
+The standalone build recompiles Maxima and can require a larger control stack and heap.
+You can tune these via environment variables:
+
+```bash
+MAXIMA_MCP_CONTROL_STACK_MB=512 \
+MAXIMA_MCP_DYNAMIC_SPACE_MB=4096 \
+sbcl --load build-standalone.lisp
+```
+
+If you want to skip recompiling Maxima and use an existing core (if present),
+set `MAXIMA_MCP_USE_CORE=1`:
+
+```bash
+MAXIMA_MCP_USE_CORE=1 sbcl --load build-standalone.lisp
+```
+
 ### Pre-built Executable
 
 Download from the releases page (if available).
