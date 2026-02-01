@@ -15,9 +15,9 @@
 (format t "Loading Quicklisp...~%")
 (load (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))
 
-;; Register this directory
+;; Register the MCP directory explicitly
 (format t "Registering ASDF directory...~%")
-(push (truename "./") asdf:*central-registry*)
+(push (truename "src/mcp/") asdf:*central-registry*)
 
 ;; Load yason
 (format t "Loading yason...~%")
@@ -31,12 +31,12 @@
 
 ;; Run the subprocess test
 (format t "--- Subprocess Backend Test ---~%")
-(maxima-mcp:test-subprocess)
+(maxima-mcp::test-subprocess)
 
 (format t "~%--- Quick Test ---~%")
-(maxima-mcp:quick-test)
+(maxima-mcp::quick-test)
 
 (format t "~%--- Protocol Test ---~%")
-(maxima-mcp:test-protocol)
+(maxima-mcp::test-protocol)
 
 (format t "~%=== All Tests Complete ===~%")

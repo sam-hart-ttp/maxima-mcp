@@ -13,7 +13,7 @@
   :version "0.1.0"
   :author "Maxima MCP Contributors"
   :license "GPL-2.0"
-  :depends-on ("maxima" "yason")
+  :depends-on ("maxima" "yason" "uiop")
   :serial t
   :pathname ""
   :components
@@ -27,6 +27,14 @@
    (:file "tools-calculus")
    (:file "tools-algebra")
    (:file "tools-matrix")
+   (:file "tools-linear")
+   (:file "tools-ode")
+   (:file "tools-vector")
+   (:file "tools-fourier")
+   (:file "tools-list")
+   (:file "tools-misc")
+   (:file "tools-extra")
+   (:file "tools-plot")
    (:file "tools-session")
    (:file "tools-meta")
    (:file "protocol")
@@ -52,6 +60,14 @@
    (:file "tools-calculus")
    (:file "tools-algebra")
    (:file "tools-matrix")
+   (:file "tools-linear")
+   (:file "tools-ode")
+   (:file "tools-vector")
+   (:file "tools-fourier")
+   (:file "tools-list")
+   (:file "tools-misc")
+   (:file "tools-extra")
+   (:file "tools-plot")
    (:file "tools-session")
    (:file "tools-meta")
    (:file "protocol")

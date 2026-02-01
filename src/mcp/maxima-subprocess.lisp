@@ -25,6 +25,14 @@
 (defvar *maxima-output* nil
   "Output stream from Maxima subprocess.")
 
+(defvar *maxima-subprocess-debug*
+  (uiop:getenv "MAXIMA_MCP_SUBPROCESS_DEBUG")
+  "When set, logs raw subprocess output for debugging.")
+
+(defvar *maxima-subprocess-mode*
+  (or (uiop:getenv "MAXIMA_MCP_SUBPROCESS_MODE") "batch")
+  "Subprocess mode: \"batch\" (default) or \"interactive\".")
+
 ;;; ------------------------------------------------------------------
 ;;; Low-level Process Functions
 ;;; ------------------------------------------------------------------
@@ -45,9 +53,32 @@
 ;;; Low-level I/O Functions
 ;;; ------------------------------------------------------------------
 
-(defun read-maxima-line ()
-  "Read a single line from Maxima output."
-  (read-line *maxima-output* nil ""))
+(defun string-suffix-p (suffix str)
+  "Return true if STR ends with SUFFIX."
+  (let ((ls (length suffix))
+        (l (length str)))
+    (and (>= l ls)
+         (string= suffix (subseq str (- l ls))))))
+
+(defun read-until-prompt (&key (count 1))
+  "Read from Maxima output until COUNT prompts are seen. Returns all output."
+  (let ((buf (make-string-output-stream))
+        (tail "")
+        (seen 0))
+    (loop for ch = (read-char *maxima-output* nil nil)
+          while ch do
+            (write-char ch buf)
+            (setf tail (concatenate 'string tail (string ch)))
+            (when (> (length tail) 32)
+              (setf tail (subseq tail (- (length tail) 32))))
+            (when (and (search "(%i" tail)
+                       (or (string-suffix-p ") " tail)
+                           (string-suffix-p ")~%" tail)
+                           (string-suffix-p ")" tail)))
+              (incf seen)
+              (when (>= seen count)
+                (return (get-output-stream-string buf)))))
+    (get-output-stream-string buf)))
 
 (defun write-to-maxima (input)
   "Write INPUT string to Maxima (without checking if process is running)."
@@ -56,29 +87,25 @@
   (finish-output *maxima-input*))
 
 (defun skip-until-prompt ()
-  "Skip lines until we see an input prompt (%iN)."
-  (loop for line = (read-maxima-line)
-        until (and (>= (length line) 3)
-                   (string= (subseq line 0 3) "(%i"))
-        finally (return line)))
+  "Skip output until we see an input prompt (%iN)."
+  (read-until-prompt :count 1))
 
 (defun read-maxima-result ()
-  "Read the result from Maxima (the (%oN) line) and return just the value.
-   Skips to the next input prompt."
-  (let ((result-line (read-maxima-line)))
-    ;; Result line looks like: (%oN) value  or just empty
-    ;; Skip to next prompt
-    (skip-until-prompt)
-    ;; Extract value from result line
-    (if (and (>= (length result-line) 5)
-             (string= (subseq result-line 0 3) "(%o"))
-        ;; Find the closing ) and space, extract the rest
-        (let ((paren-pos (position #\) result-line :start 3)))
+  "Read output until the next prompt and return the last (%oN) value."
+  (let* ((output (read-until-prompt :count 2))
+         (prompt-pos (search "(%i" output :from-end t))
+         (body (if prompt-pos (subseq output 0 prompt-pos) output))
+         (o-pos (search "(%o" body :from-end t)))
+    (when *maxima-subprocess-debug*
+      (format *error-output* "~%[maxima-subprocess] raw output:~%~A~%" output))
+    (if o-pos
+        (let* ((paren-pos (position #\) body :start (+ o-pos 3))))
           (if paren-pos
               (string-trim '(#\Space #\Tab #\Newline #\Return)
-                           (subseq result-line (1+ paren-pos)))
-              result-line))
-        (string-trim '(#\Space #\Tab #\Newline #\Return) result-line))))
+                           (subseq body (1+ paren-pos)))
+              (string-trim '(#\Space #\Tab #\Newline #\Return)
+                           (subseq body (+ o-pos 3)))))
+        (string-trim '(#\Space #\Tab #\Newline #\Return) body))))
 
 ;;; ------------------------------------------------------------------
 ;;; Subprocess Management
@@ -137,22 +164,38 @@
    Returns (values result-string error-string)."
   (handler-case
       (progn
-        (ensure-maxima-subprocess)
-        ;; Send expression (ensure it ends with ; or $)
         (let ((trimmed (string-trim '(#\Space #\Tab #\Newline) expr-string)))
           (when (zerop (length trimmed))
             (return-from subprocess-eval (values "" nil)))
           (unless (or (char= (char trimmed (1- (length trimmed))) #\;)
                       (char= (char trimmed (1- (length trimmed))) #\$))
             (setf trimmed (concatenate 'string trimmed ";")))
-          (write-to-maxima trimmed))
-        ;; Read result
-        (let ((output (read-maxima-result)))
-          ;; Check for error markers in output
-          (if (or (search "error" output :test #'char-equal)
-                  (search "incorrect" output :test #'char-equal))
-              (values nil output)
-              (values output nil))))
+          (if (string= *maxima-subprocess-mode* "interactive")
+              (progn
+                (ensure-maxima-subprocess)
+                (write-to-maxima trimmed)
+                (let ((output (read-maxima-result)))
+                  (if (or (search "error" output :test #'char-equal)
+                          (search "incorrect" output :test #'char-equal))
+                      (values nil output)
+                      (values output nil))))
+              (let* ((batch-expr (format nil "display2d:false$~A" trimmed))
+                     (cmd (list "maxima" "-q" "--batch-string" batch-expr))
+                     (out (uiop:run-program cmd :output :string :error-output :string :ignore-error-status t))
+                     (o-pos (search "(%o" out :from-end t)))
+                (when *maxima-subprocess-debug*
+                  (format *error-output* "~%[maxima-subprocess] batch output:~%~A~%" out))
+                (if (or (search "error" out :test #'char-equal)
+                        (search "incorrect" out :test #'char-equal))
+                    (values nil out)
+                    (if o-pos
+                        (let* ((paren-pos (position #\) out :start (+ o-pos 3))))
+                          (if paren-pos
+                              (values (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                                   (subseq out (1+ paren-pos)))
+                                      nil)
+                              (values (string-trim '(#\Space #\Tab #\Newline #\Return) out) nil)))
+                        (values (string-trim '(#\Space #\Tab #\Newline #\Return) out) nil)))))))
     (error (e)
       (values nil (format nil "Subprocess error: ~A" e)))))
 

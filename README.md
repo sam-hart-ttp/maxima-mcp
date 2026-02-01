@@ -140,14 +140,20 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"evaluate",
 - `taylor` - Taylor series expansion
 - `sum` - Summation
 - `product` - Product
+- `laplace` - Laplace transform
+- `ilt` - Inverse Laplace transform
 
 ### Algebra
 - `simplify` - Simplify expressions
 - `factor` - Factor polynomials
 - `expand` - Expand expressions
+- `trigexpand` - Expand trigonometric functions
+- `trigreduce` - Reduce trigonometric functions
 - `ratsimp` - Rational simplification
 - `trigsimp` - Trigonometric simplification
 - `partfrac` - Partial fraction decomposition
+- `radcan` - Canonicalize radicals
+- `gcd` - Greatest common divisor
 
 ### Linear Algebra
 - `determinant` - Matrix determinant
@@ -156,16 +162,113 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"evaluate",
 - `eigenvectors` - Eigenvectors
 - `transpose` - Matrix transpose
 - `matrix_multiply` - Matrix multiplication
+- `rank` - Matrix rank
+- `nullspace` - Matrix nullspace
+- `linsolve` - Solve linear systems
+- `fast_linsolve` - Faster linear solver (sparse-friendly)
+- `augcoefmatrix` - Augmented coefficient matrix
+- `coefmatrix` - Coefficient matrix
+- `addcol` - Add columns to a matrix
+- `triangularize` - Gaussian elimination
+- `echelon` - Echelon form
+- `matrix` - Construct a matrix from rows
+- `charpoly` - Characteristic polynomial
+- `trace_matrix` - Trace of a matrix
+- `solve_linear` - Solve linear systems (matrix form)
+
+### Differential Equations
+- `ode2` - Solve a single ODE
+- `ic1` - Apply one initial condition
+- `ic2` - Apply two initial conditions
+- `bc2` - Apply two boundary conditions
+- `desolve` - Solve linear ODE systems
+- `atvalue` - Define values at a point
+- `printprops` - Inspect properties (e.g., atvalue)
+
+### Vector Calculus (vect package)
+- `scalefactors` - Set scale factors
+- `express` - Simplify vector expressions
+- `grad` - Gradient
+- `div` - Divergence
+- `curl` - Curl
+- `potential` - Scalar potential
+- `vectorpotential` - Vector potential
+
+### Fourier Series (fourie package)
+- `fourier` - Fourier coefficients
+- `fourexpand` - Construct a Fourier series
+- `foursimp` - Simplify Fourier terms
+- `fourcos` - Fourier cosine coefficients
+- `foursin` - Fourier sine coefficients
+- `totalfourier` - Full Fourier expansion
+
+### Lists and Substitution
+- `makelist` - Build lists by iteration
+- `subst` - Substitute expressions
+- `ev` - Evaluate with substitutions/flags
+- `append` - Append lists
+
+### Misc
+- `abs` - Absolute value
+- `maxmod` - Maximum modulus
+- `ident` - Identity matrix
+- `length` - List length
+- `random` - Random integer
+- `evenp` - Even predicate
+- `concat` / `sconcat` - String concatenation
+- `cons` - Construct lists
+- `facts` - List assumptions
+- `kill` - Kill variables/properties
+- `float` - Floating-point evaluation
+- `bfloat` - Bigfloat evaluation
+
+### Extra (OU guides/manual)
+- `fullratsimp` - Full rational simplification
+- `logcontract` - Combine logarithms
+- `trigrat` - Simplify trig ratios
+- `realroots` / `allroots` - Polynomial roots
+- `multiplicities` - Root multiplicities from last solve/roots
+- `rhs` / `lhs` - Equation sides
+- `map` - Apply a function to a list
+- `quotient` / `remainder` - Division (integer or polynomial)
+- `gcdex` - Extended GCD (Bezout coefficients)
+- `quad_qags` - Numerical integration
+- `rk` - Runge-Kutta ODE solver
+- `solve_rec` - Recurrence relation solver
+- `set_plot_option` - Set global plot options
+- `depends` / `dependencies` - Declare or list functional dependencies
+- `remove_dependency` - Remove dependencies for a symbol
+- `gradef` - Define custom derivative rules
+- `propvars` - List variables with a given property
+
+### Plotting
+- `plot_capabilities` - Discover available plotting backends/outputs at runtime
+- `plot` - Render 2D/3D plots to PNG (or window when available)
+- `plot2d` / `plot3d` - Explicit 2D/3D plot wrappers
+- `wxplot2d` / `wxplot3d` - wxMaxima-compatible plot aliases
+- `implicit_plot` / `wximplicit_plot` - Implicit plotting
+- `draw2d` / `draw3d` - draw package plotting
+- `drawdf` - Direction field plotting (drawdf package)
+- `with_slider_draw` - Interactive sliders (not supported headless)
 
 ### Session
 - `assign` - Assign value to variable
 - `get_value` - Get variable value
+- `list_variables` - List defined variables
 - `assume` - Add mathematical assumption
 - `forget` - Remove assumption
+- `list_assumptions` - List current assumptions
 - `reset` - Reset session state
+- `clear` - Clear variables
 
 ### Meta
 - `describe` - Get help on Maxima functions
+- `constants` - List known constants
+- `define_function` - Define a function
+- `example` - Show examples of a Maxima function
+- `apropos` - Search for functions by name
+- `fundef` - Show function definition
+- `list_functions` - List defined functions
 - `capabilities` - List available tools
 - `version` - Get Maxima version info
 
@@ -190,6 +293,23 @@ All tools support a `format` parameter:
 - `latex` - LaTeX: `3\,x^2`
 - `mathml` - MathML markup
 - `lisp` - Internal Lisp representation
+
+### Subprocess Mode
+
+The subprocess backend can run in two modes:
+
+- `MAXIMA_MCP_SUBPROCESS_MODE=batch` (default) runs `maxima -q --batch-string` for each evaluation.
+- `MAXIMA_MCP_SUBPROCESS_MODE=interactive` keeps a persistent Maxima process.
+
+Debugging:
+
+- `MAXIMA_MCP_SUBPROCESS_DEBUG=1` logs raw subprocess output to stderr.
+- If SBCL cannot write under `~/.cache`, set `XDG_CACHE_HOME=/tmp` when running tests.
+
+Batch mode statelessness:
+
+- `batch` mode is stateless: each tool call runs in a fresh Maxima process, so assignments, assumptions, dependencies, and custom derivative rules do not persist across calls.
+- If you need state to persist between calls, use `MAXIMA_MCP_SUBPROCESS_MODE=interactive`, or have the client track state and re-send it with each request.
 
 ## License
 
