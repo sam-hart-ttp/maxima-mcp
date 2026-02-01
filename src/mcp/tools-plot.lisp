@@ -123,18 +123,38 @@
     (when opts
       (format nil "~{~A~^, ~}" (nreverse opts)))))
 
-(defun wait-for-nonempty-file (path &key (timeout 2.0) (interval 0.05))
-  "Wait briefly for PATH to exist and have non-zero size."
+(defun get-file-size (path)
+  "Get file size in bytes, or NIL if file doesn't exist or can't be read."
+  (ignore-errors
+    (with-open-file (s path :direction :input :element-type '(unsigned-byte 8))
+      (file-length s))))
+
+(defun wait-for-nonempty-file (path &key (timeout 2.0) (interval 0.05) (stable-count 2))
+  "Wait briefly for PATH to exist, have non-zero size, and be stable.
+STABLE-COUNT is the number of consecutive checks with unchanged size
+required before considering the file complete. This avoids race conditions
+where we read the file while gnuplot is still writing to it."
   (let* ((units internal-time-units-per-second)
-         (deadline (+ (get-internal-real-time) (* timeout units))))
+         (deadline (+ (get-internal-real-time) (* timeout units)))
+         (last-size nil)
+         (stable 0))
     (loop
-      (when (and (uiop:file-exists-p path)
-                 (> (or (ignore-errors
-                          (with-open-file (s path :direction :input :element-type '(unsigned-byte 8))
-                            (file-length s)))
-                        0)
-                    0))
-        (return t))
+      (let ((size (get-file-size path)))
+        (cond
+          ;; File doesn't exist or is empty - reset stability counter
+          ((or (null size) (zerop size))
+           (setf last-size nil
+                 stable 0))
+          ;; Size changed - reset stability counter with new size
+          ((not (eql size last-size))
+           (setf last-size size
+                 stable 1))
+          ;; Size unchanged - increment stability counter
+          (t
+           (incf stable)
+           ;; File is stable (size unchanged for stable-count checks)
+           (when (>= stable stable-count)
+             (return t)))))
       (when (>= (get-internal-real-time) deadline)
         (return nil))
       (sleep interval))))

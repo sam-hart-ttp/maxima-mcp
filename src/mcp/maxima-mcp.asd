@@ -39,6 +39,7 @@
    (:file "tools-meta")
    (:file "protocol")
    (:file "transport")
+   (:file "test-common")
    (:file "main")))
 
 ;; Standalone test system - uses subprocess, doesn't require maxima library
@@ -72,4 +73,5 @@
    (:file "tools-meta")
    (:file "protocol")
    (:file "transport")
+   (:file "test-common")
    (:file "main-subprocess")))

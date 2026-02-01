@@ -165,6 +165,7 @@
     "tools-meta.lisp"
     "protocol.lisp"
     "transport.lisp"
+    "test-common.lisp"
     "main.lisp"))
 
 (dolist (file *mcp-files*)

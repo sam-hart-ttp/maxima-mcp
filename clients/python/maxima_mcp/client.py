@@ -8,9 +8,16 @@ using JSON-RPC 2.0 over stdio.
 import json
 import subprocess
 import os
+import select
+import sys
 import threading
 from collections import deque
 from typing import Any, Deque, Dict, List, Optional, Union
+
+
+class MaximaTimeoutError(Exception):
+    """Exception raised when a request times out."""
+    pass
 
 
 class MaximaError(Exception):
@@ -43,6 +50,7 @@ class MaximaMCPClient:
         self,
         server_command: Optional[List[str]] = None,
         server_path: Optional[str] = None,
+        timeout: Optional[float] = 30.0,
     ):
         """
         Initialize the Maxima MCP client.
@@ -51,6 +59,7 @@ class MaximaMCPClient:
             server_command: Command to run the MCP server. If not provided,
                            uses server_path or searches for 'maxima-mcp' in PATH.
             server_path: Path to the maxima-mcp executable.
+            timeout: Default timeout in seconds for requests (None = no timeout).
         """
         self._process: Optional[subprocess.Popen] = None
         self._request_id = 0
@@ -58,6 +67,8 @@ class MaximaMCPClient:
         self._stderr_thread: Optional[threading.Thread] = None
         self._stderr_buffer: Deque[str] = deque(maxlen=50)
         self._stderr_lock = threading.Lock()
+        self._timeout = timeout
+        self._is_windows = sys.platform == "win32"
 
         if server_command:
             self._server_command = server_command
@@ -129,11 +140,60 @@ class MaximaMCPClient:
         self._stderr_thread = threading.Thread(target=_drain, daemon=True)
         self._stderr_thread.start()
 
+    def _readline_with_timeout(self, timeout: Optional[float]) -> Optional[str]:
+        """Read a line from stdout with optional timeout.
+
+        Args:
+            timeout: Timeout in seconds, or None for no timeout.
+
+        Returns:
+            The line read, or None if EOF.
+
+        Raises:
+            MaximaTimeoutError: If the read times out.
+        """
+        if self._process is None or self._process.stdout is None:
+            return None
+
+        if timeout is None or self._is_windows:
+            # No timeout or Windows (select doesn't work on pipes)
+            return self._process.stdout.readline()
+
+        # Use select for timeout on Unix
+        stdout_fd = self._process.stdout.fileno()
+        ready, _, _ = select.select([stdout_fd], [], [], timeout)
+        if not ready:
+            raise MaximaTimeoutError(
+                self._format_disconnect_error(f"Request timed out after {timeout} seconds")
+            )
+        return self._process.stdout.readline()
+
     def _send_request(
-        self, method: str, params: Optional[Dict[str, Any]] = None
+        self,
+        method: str,
+        params: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = ...,  # Use ellipsis as sentinel for "use default"
     ) -> Dict[str, Any]:
-        """Send a JSON-RPC request and return the response."""
+        """Send a JSON-RPC request and return the response.
+
+        Args:
+            method: The JSON-RPC method name.
+            params: Optional parameters for the method.
+            timeout: Timeout in seconds. Use None for no timeout,
+                    or omit to use the default timeout from __init__.
+
+        Returns:
+            The result from the response.
+
+        Raises:
+            MaximaTimeoutError: If the request times out.
+            MaximaError: If the server returns an error or disconnects.
+        """
         self._ensure_connected()
+
+        # Handle sentinel value for default timeout
+        if timeout is ...:
+            timeout = self._timeout
 
         self._request_id += 1
         request = {
@@ -149,7 +209,7 @@ class MaximaMCPClient:
         self._process.stdin.flush()
 
         # Read response (skip blank lines, with retry limit to avoid infinite loop)
-        response_line = self._process.stdout.readline()
+        response_line = self._readline_with_timeout(timeout)
         blank_line_count = 0
         max_blank_lines = 100
         while response_line is not None and response_line.strip() == "":
@@ -160,7 +220,8 @@ class MaximaMCPClient:
                         f"Server sent {max_blank_lines} consecutive blank lines"
                     )
                 )
-            response_line = self._process.stdout.readline()
+            response_line = self._readline_with_timeout(timeout)
+
         if not response_line:
             raise MaximaError(self._format_disconnect_error("Server disconnected unexpectedly"))
 
@@ -202,13 +263,23 @@ class MaximaMCPClient:
             self._initialized = True
 
     def _call_tool(
-        self, tool_name: str, arguments: Optional[Dict[str, Any]] = None
+        self,
+        tool_name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = ...,
     ) -> str:
-        """Call an MCP tool and return the result text."""
+        """Call an MCP tool and return the result text.
+
+        Args:
+            tool_name: Name of the tool to call.
+            arguments: Arguments for the tool.
+            timeout: Timeout in seconds. Use None for no timeout,
+                    or omit to use the default timeout from __init__.
+        """
         self._initialize()
 
         result = self._send_request(
-            "tools/call", {"name": tool_name, "arguments": arguments or {}}
+            "tools/call", {"name": tool_name, "arguments": arguments or {}}, timeout=timeout
         )
 
         # Extract text content from result
@@ -696,6 +767,18 @@ class MaximaMCPClient:
         result = self._send_request("tools/list", {})
         return result.get("tools", [])
 
-    def call_tool(self, name: str, arguments: Optional[Dict[str, Any]] = None) -> str:
-        """Call any tool by name with arbitrary arguments."""
-        return self._call_tool(name, arguments)
+    def call_tool(
+        self,
+        name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = ...,
+    ) -> str:
+        """Call any tool by name with arbitrary arguments.
+
+        Args:
+            name: Name of the tool to call.
+            arguments: Arguments for the tool.
+            timeout: Timeout in seconds. Use None for no timeout,
+                    or omit to use the default timeout from __init__.
+        """
+        return self._call_tool(name, arguments, timeout=timeout)
