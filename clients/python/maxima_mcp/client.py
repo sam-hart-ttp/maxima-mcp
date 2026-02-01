@@ -57,6 +57,7 @@ class MaximaMCPClient:
         self._initialized = False
         self._stderr_thread: Optional[threading.Thread] = None
         self._stderr_buffer: Deque[str] = deque(maxlen=50)
+        self._stderr_lock = threading.Lock()
 
         if server_command:
             self._server_command = server_command
@@ -122,7 +123,8 @@ class MaximaMCPClient:
             for line in self._process.stderr:
                 if not line:
                     break
-                self._stderr_buffer.append(line.rstrip("\n"))
+                with self._stderr_lock:
+                    self._stderr_buffer.append(line.rstrip("\n"))
 
         self._stderr_thread = threading.Thread(target=_drain, daemon=True)
         self._stderr_thread.start()
@@ -146,9 +148,18 @@ class MaximaMCPClient:
         self._process.stdin.write(request_json + "\n")
         self._process.stdin.flush()
 
-        # Read response
+        # Read response (skip blank lines, with retry limit to avoid infinite loop)
         response_line = self._process.stdout.readline()
+        blank_line_count = 0
+        max_blank_lines = 100
         while response_line is not None and response_line.strip() == "":
+            blank_line_count += 1
+            if blank_line_count > max_blank_lines:
+                raise MaximaError(
+                    self._format_disconnect_error(
+                        f"Server sent {max_blank_lines} consecutive blank lines"
+                    )
+                )
             response_line = self._process.stdout.readline()
         if not response_line:
             raise MaximaError(self._format_disconnect_error("Server disconnected unexpectedly"))
@@ -222,9 +233,10 @@ class MaximaMCPClient:
 
     def _format_disconnect_error(self, message: str) -> str:
         """Attach recent stderr output to an error message."""
-        if not self._stderr_buffer:
-            return message
-        tail = "\n".join(self._stderr_buffer)
+        with self._stderr_lock:
+            if not self._stderr_buffer:
+                return message
+            tail = "\n".join(list(self._stderr_buffer))
         return f"{message}\n--- server stderr (tail) ---\n{tail}"
 
     def __enter__(self):
@@ -510,14 +522,27 @@ class MaximaMCPClient:
         )
 
     def subst(
-        self, replacement: str, variable: str, expression: str, format: str = "text"
+        self, substitution: str, expression: str, format: str = "text"
     ) -> str:
-        """Substitute a value for a variable."""
+        """
+        Substitute values into an expression.
+
+        Args:
+            substitution: Substitution rule(s), e.g. "x=1" or "[x=1, y=2]"
+            expression: The expression to substitute into
+            format: Output format
+
+        Returns:
+            The expression with substitutions applied.
+
+        Example:
+            >>> client.subst("x=2", "x^2 + y")
+            'y+4'
+        """
         return self._call_tool(
             "subst",
             {
-                "replacement": replacement,
-                "variable": variable,
+                "substitution": substitution,
                 "expression": expression,
                 "format": format,
             },

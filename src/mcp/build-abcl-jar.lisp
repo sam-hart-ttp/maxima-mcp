@@ -73,10 +73,21 @@
   (format t "Loading Maxima (via Quicklisp) if available...~%")
   (let ((quicklisp-init (merge-pathnames "quicklisp/setup.lisp"
                                          (user-homedir-pathname))))
-    (when (probe-file quicklisp-init)
-      (load quicklisp-init)
-      (ignore-errors
-        (ql:quickload :maxima :silent t)))))
+    (if (not (probe-file quicklisp-init))
+        (progn
+          (format t "Warning: Quicklisp not found at ~A~%" quicklisp-init)
+          (format t "Falling back to subprocess mode.~%")
+          (setf *use-subprocess* t)
+          (setf *system-name* :maxima-mcp/test))
+        (progn
+          (load quicklisp-init)
+          (handler-case
+              (ql:quickload :maxima :silent t)
+            (error (e)
+              (format t "Warning: Failed to load Maxima via Quicklisp: ~A~%" e)
+              (format t "Falling back to subprocess mode.~%")
+              (setf *use-subprocess* t)
+              (setf *system-name* :maxima-mcp/test)))))))
 
 ;;; ------------------------------------------------------------------
 ;;; Package into jar

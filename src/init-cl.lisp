@@ -857,19 +857,23 @@ maxima [options] --batch-string='batch_answers_from_file:false; ...'
 ;;; and hashtables of builtin symbols and values.
 
 ;; Copy lists safely even if circular structures exist in plists.
-(defun copy-tree-safe (obj)
+;; Includes a depth limit to prevent stack exhaustion on very deep structures.
+(defun copy-tree-safe (obj &optional (max-depth 10000))
   (let ((seen (make-hash-table :test #'eq)))
-    (labels ((copy (x)
+    (labels ((copy (x depth)
                (cond
+                 ((>= depth max-depth)
+                  ;; At max depth, return the object without further copying
+                  x)
                  ((consp x)
                   (or (gethash x seen)
                       (let ((cell (cons nil nil)))
                         (setf (gethash x seen) cell)
-                        (setf (car cell) (copy (car x))
-                              (cdr cell) (copy (cdr x)))
+                        (setf (car cell) (copy (car x) (1+ depth))
+                              (cdr cell) (copy (cdr x) (1+ depth)))
                         cell)))
                  (t x))))
-      (copy obj))))
+      (copy obj 0))))
 
 ;;; The assume database structures for numeric constants such as $%pi and $%e
 ;;; are circular.  Attempting to copy a circular structure

@@ -55,9 +55,24 @@
 ;;; Maxima Error Capture (Subprocess version)
 ;;; ------------------------------------------------------------------
 
+(defvar *last-subprocess-error* nil
+  "Stores the last error message captured from subprocess output.")
+
 (defun capture-maxima-error ()
-  "Return a generic error message for subprocess mode."
-  "Maxima error (see output for details)")
+  "Return the last captured error message from subprocess mode.
+   In subprocess mode, error details are typically included in the evaluation
+   output rather than captured separately. This returns the stored error if
+   available, or a generic message otherwise."
+  (or *last-subprocess-error*
+      "Maxima evaluation failed (check expression syntax)"))
+
+(defun set-subprocess-error (message)
+  "Store an error message for later retrieval by capture-maxima-error."
+  (setf *last-subprocess-error* message))
+
+(defun clear-subprocess-error ()
+  "Clear the stored subprocess error."
+  (setf *last-subprocess-error* nil))
 
 (defun maxima-expr-to-string (expr)
   "Convert expression to string."

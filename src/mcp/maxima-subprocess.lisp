@@ -161,7 +161,9 @@
 
 (defun subprocess-eval (expr-string)
   "Evaluate EXPR-STRING via the Maxima subprocess.
-   Returns (values result-string error-string)."
+   Returns (values result-string error-string).
+   Also stores any error for retrieval by capture-maxima-error."
+  (clear-subprocess-error)
   (handler-case
       (progn
         (let ((trimmed (string-trim '(#\Space #\Tab #\Newline) expr-string)))
@@ -177,7 +179,9 @@
                 (let ((output (read-maxima-result)))
                   (if (or (search "error" output :test #'char-equal)
                           (search "incorrect" output :test #'char-equal))
-                      (values nil output)
+                      (progn
+                        (set-subprocess-error output)
+                        (values nil output))
                       (values output nil))))
               (let* ((batch-expr (format nil "display2d:false$~A" trimmed))
                      (cmd (list "maxima" "-q" "--batch-string" batch-expr))
@@ -187,7 +191,9 @@
                   (format *error-output* "~%[maxima-subprocess] batch output:~%~A~%" out))
                 (if (or (search "error" out :test #'char-equal)
                         (search "incorrect" out :test #'char-equal))
-                    (values nil out)
+                    (progn
+                      (set-subprocess-error out)
+                      (values nil out))
                     (if o-pos
                         (let* ((paren-pos (position #\) out :start (+ o-pos 3))))
                           (if paren-pos
@@ -197,7 +203,9 @@
                               (values (string-trim '(#\Space #\Tab #\Newline #\Return) out) nil)))
                         (values (string-trim '(#\Space #\Tab #\Newline #\Return) out) nil)))))))
     (error (e)
-      (values nil (format nil "Subprocess error: ~A" e)))))
+      (let ((err-msg (format nil "Subprocess error: ~A" e)))
+        (set-subprocess-error err-msg)
+        (values nil err-msg)))))
 
 ;;; ------------------------------------------------------------------
 ;;; Test Function

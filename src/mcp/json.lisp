@@ -11,10 +11,21 @@
 ;;; JSON Encoding
 ;;; ------------------------------------------------------------------
 
-;; Configure yason to handle symbols properly
+;; Wrapper struct for raw JSON output (avoids string escaping)
+(defstruct (json-raw-value (:constructor make-json-raw-value (string)))
+  "Wrapper for raw JSON values that should be output without escaping."
+  (string "" :type string :read-only t))
+
+;; Public yason encoder for raw JSON values
+(defmethod yason:encode ((raw json-raw-value) &optional stream)
+  "Encode a raw JSON value by writing its string directly."
+  (write-string (json-raw-value-string raw) stream)
+  raw)
+
 (defun json-raw (value)
-  "Return VALUE as raw JSON output (no string escaping)."
-  (yason::make-raw-json-output value))
+  "Return VALUE as raw JSON output (no string escaping).
+   VALUE should be a valid JSON literal string like \"true\", \"false\", or \"null\"."
+  (make-json-raw-value value))
 
 (defun json-symbol-encoder (symbol)
   "Encode Lisp symbols as JSON values."

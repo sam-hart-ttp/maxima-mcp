@@ -236,30 +236,5 @@
 
 ;;; ------------------------------------------------------------------
 ;;; subst - Substitute values
+;;; NOTE: subst tool is defined in tools-list.lisp with a cleaner API
 ;;; ------------------------------------------------------------------
-
-(define-mcp-tool "subst"
-    (:description "Substitute a value for a variable in an expression.")
-  (("replacement" "string" :description "The replacement value or expression")
-   ("variable" "string" :description "The variable to replace")
-   ("expression" "string" :description "The expression in which to make the substitution")
-   ("format" "string" :description "Output format: text, latex, mathml, or lisp" :required nil))
-
-  (let* ((repl-str (get-argument arguments "replacement"))
-         (var-str (get-argument arguments "variable"))
-         (expr-str (get-argument arguments "expression"))
-         (format-str (get-argument arguments "format"))
-         (format (session-get-format session format-str)))
-
-    (unless repl-str
-      (signal-mcp-error +invalid-params+ "Missing required parameter: replacement"))
-    (unless var-str
-      (signal-mcp-error +invalid-params+ "Missing required parameter: variable"))
-    (unless expr-str
-      (signal-mcp-error +invalid-params+ "Missing required parameter: expression"))
-
-    (let ((subst-expr (format nil "subst(~A, ~A, ~A)" repl-str var-str expr-str)))
-      (multiple-value-bind (result err) (parse-and-eval subst-expr)
-        (if err
-            (wrap-tool-result nil :is-error t :error-message err)
-            (wrap-tool-result result :format format))))))

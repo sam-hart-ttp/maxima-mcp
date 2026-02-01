@@ -71,20 +71,20 @@
        (reexec (sb-ext:posix-getenv "MAXIMA_MCP_REEXEC")))
   (when (and (not reexec)
              (or (string/= requested-stack-mb "") (string/= requested-dyn-mb "")))
-    (let* ((stack-mb (parse-integer requested-stack-mb :junk-allowed t))
-           (stack-kb (if stack-mb (* stack-mb 1024) 524288))
-           (dyn-mb (parse-integer requested-dyn-mb :junk-allowed t)))
+    (let* ((stack-mb (or (parse-integer requested-stack-mb :junk-allowed t) 512))
+           (stack-kb (* stack-mb 1024))
+           (dyn-mb (or (parse-integer requested-dyn-mb :junk-allowed t) 4096)))
       (format t "~%Re-executing SBCL with --control-stack-size ~A KB and --dynamic-space-size ~A MB...~%"
-              stack-kb (or dyn-mb 4096))
+              stack-kb dyn-mb)
       (let* ((sbcl (or (and (boundp 'sb-ext:*posix-argv*)
                             (first sb-ext:*posix-argv*))
                        "sbcl"))
              (script (namestring *load-truename*))
-             (args (append (list "--control-stack-size" (princ-to-string stack-kb))
-                           (when dyn-mb (list "--dynamic-space-size" (princ-to-string dyn-mb)))
-                           (list "--noinform"
-                                 "--non-interactive"
-                                 "--load" script)))
+             (args (list "--control-stack-size" (princ-to-string stack-kb)
+                         "--dynamic-space-size" (princ-to-string dyn-mb)
+                         "--noinform"
+                         "--non-interactive"
+                         "--load" script))
              (env (cons "MAXIMA_MCP_REEXEC=1" (sb-ext:posix-environ))))
         (sb-ext:run-program sbcl args
                             :output t
