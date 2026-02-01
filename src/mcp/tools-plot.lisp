@@ -256,8 +256,7 @@ where we read the file while gnuplot is still writing to it."
              (when err
                (return-from run-plot (wrap-text-content err :is-error t))))
            (unwind-protect
-               (if (and (uiop:file-exists-p png-path)
-                        (> (or (ignore-errors (with-open-file (s png-path :direction :input :element-type '(unsigned-byte 8)) (file-length s))) 0) 0))
+               (if (wait-for-nonempty-file png-path)
                    (let* ((bytes (read-file-bytes png-path))
                           (b64 (base64-encode-bytes bytes)))
                      (wrap-image-content b64 :mime-type "image/png"))
