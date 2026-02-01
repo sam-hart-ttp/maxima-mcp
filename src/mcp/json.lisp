@@ -22,6 +22,19 @@
   (write-string (json-raw-value-string raw) stream)
   raw)
 
+;; Encoder for symbols (handles booleans and keywords in hash-tables)
+(defmethod yason:encode ((sym symbol) &optional stream)
+  "Encode Lisp symbols as JSON values."
+  (write-string (cond
+                  ((eq sym t) "true")
+                  ((eq sym nil) "null")
+                  ((eq sym :null) "null")
+                  ((eq sym :false) "false")
+                  ((eq sym :true) "true")
+                  (t (string-downcase (symbol-name sym))))
+                stream)
+  sym)
+
 (defun json-raw (value)
   "Return VALUE as raw JSON output (no string escaping).
    VALUE should be a valid JSON literal string like \"true\", \"false\", or \"null\"."
