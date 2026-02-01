@@ -472,7 +472,7 @@ WINDOW-MESSAGE is the success message for window output."
               (get-argument arguments "output")
               (get-argument arguments "width")
               (get-argument arguments "height")
-              :load-fn #'ensure-drawdf-loaded)))))
+              :load-fn #'ensure-drawdf-loaded)))
 
 ;;; ------------------------------------------------------------------
 ;;; with_slider_draw - Interactive slider helper (not supported headless)
