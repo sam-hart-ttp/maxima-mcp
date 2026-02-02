@@ -73,6 +73,7 @@
         (dolist (pair args)
           (setf (gethash (first pair) arg-hash) (second pair)))
         (let* ((session (make-mcp-session))
+               (session (initialize-session session))
                (result (invoke-tool tool-name session arg-hash))
                (text (get-result-text result))
                (is-error (json-object-get result "isError")))
@@ -133,19 +134,3 @@
       (format t "  Failed: ~A~%" total-failed)
       (format t "  Total:  ~A~%~%" (+ total-passed total-failed)))
     (values total-passed total-failed)))
-
-;;; ------------------------------------------------------------------
-;;; Test Tool Helper (for interactive use)
-;;; ------------------------------------------------------------------
-
-(defun test-tool (tool-name &rest arg-pairs)
-  "Test a tool interactively. ARG-PAIRS is a plist of argument names and values."
-  (let ((session (make-mcp-session))
-        (args (make-hash-table :test #'equal)))
-    (loop for (key value) on arg-pairs by #'cddr
-          do (setf (gethash key args) value))
-    (handler-case
-        (invoke-tool tool-name session args)
-      (error (e)
-        (format t "Error: ~A~%" e)
-        nil))))
