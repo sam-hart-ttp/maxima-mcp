@@ -75,6 +75,39 @@
 ;;; Maxima Error Capture
 ;;; ------------------------------------------------------------------
 
+(defun convert-maxima-format-string (format-string)
+  "Convert Maxima format directives to Common Lisp format directives.
+   Maxima uses ~M for printing Maxima expressions, which CL doesn't understand.
+   Since we pre-convert args to strings, we can replace ~M with ~A."
+  (with-output-to-string (out)
+    (let ((i 0)
+          (len (length format-string)))
+      (loop while (< i len)
+            do (let ((c (char format-string i)))
+                 (cond
+                   ;; Check for ~M, ~:M, ~@M, ~:@M patterns
+                   ((and (char= c #\~)
+                         (< (1+ i) len))
+                    (let ((j (1+ i)))
+                      ;; Skip optional : and @ flags
+                      (loop while (and (< j len)
+                                       (member (char format-string j) '(#\: #\@)))
+                            do (incf j))
+                      ;; Check if directive is M
+                      (if (and (< j len)
+                               (char-equal (char format-string j) #\M))
+                          ;; Replace ~M variants with ~A
+                          (progn
+                            (write-string "~A" out)
+                            (setf i (1+ j)))
+                          ;; Not ~M, output original ~
+                          (progn
+                            (write-char c out)
+                            (incf i)))))
+                   (t
+                    (write-char c out)
+                    (incf i))))))))
+
 (defun capture-maxima-error ()
   "Capture the current Maxima error message.
    Returns a string describing the error."
@@ -86,7 +119,7 @@
                   (args (cddr err-list)))
               (if (stringp format-string)
                   (apply #'format nil
-                         (substitute #\~ #\~ format-string)
+                         (convert-maxima-format-string format-string)
                          (mapcar #'maxima-expr-to-string args))
                   (format nil "~S" err-list)))
             "Unknown Maxima error"))
