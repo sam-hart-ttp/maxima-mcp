@@ -193,6 +193,15 @@ where we read the file while gnuplot is still writing to it."
     (when err
       (signal-mcp-error +internal-error+ err))))
 
+(defun strip-png-extension (path)
+  "Remove .png extension from PATH if present.
+   Draw automatically adds the extension based on terminal type."
+  (let ((path-str (namestring path)))
+    (if (and (> (length path-str) 4)
+             (string-equal (subseq path-str (- (length path-str) 4)) ".png"))
+        (subseq path-str 0 (- (length path-str) 4))
+        path-str)))
+
 (defun make-draw-options (output-mode png-path width height extra-options)
   "Build a comma-separated options string for draw2d/draw3d/drawdf."
   (let ((opts '()))
@@ -200,7 +209,8 @@ where we read the file while gnuplot is still writing to it."
       (:png
        (push "terminal = 'png" opts)
        (when png-path
-         (push (format nil "file_name = \"~A\"" png-path) opts))
+         ;; Strip .png extension since draw adds it automatically
+         (push (format nil "file_name = \"~A\"" (strip-png-extension png-path)) opts))
        (when (and width height)
          (push (format nil "dimensions = [~A, ~A]" width height) opts)))
       (:window
