@@ -35,6 +35,15 @@
 (defvar *tool-call-total* 0
   "Total number of tool invocations handled in this process.")
 
+(defvar *symbolic-call-total* 0
+  "Number of symbolic-tool calls tracked for preflight observability.")
+
+(defvar *symbolic-calls-without-assumptions* 0
+  "Number of symbolic-tool calls made without explicit assumptions in session.")
+
+(defvar *symbolic-preflight-warnings* 0
+  "Number of symbolic preflight warnings emitted.")
+
 (defvar *mcp-debug* nil
   "When non-nil, enable debug output to stderr.")
 
@@ -176,21 +185,25 @@
         (make-error-response id +invalid-params+ "Missing tool name")))
 
     (record-tool-call tool-name)
-    (handler-case
-        (let ((result (invoke-tool tool-name session (or arguments
-                                                         (make-hash-table :test #'equal)))))
-          (make-json-object
-           "jsonrpc" "2.0"
-           "id" id
-           "result" result))
-      (mcp-error (e)
-        (make-error-response id
-                             (mcp-error-code e)
-                             (mcp-error-message e)
-                             (mcp-error-data e)))
-      (error (e)
-        (make-error-response id +tool-execution-error+
-                             (format nil "Tool execution error: ~A" e))))))
+    (let ((preflight-warning (symbolic-preflight-warning tool-name session)))
+      (handler-case
+          (let ((result (invoke-tool tool-name session (or arguments
+                                                           (make-hash-table :test #'equal)))))
+            (when preflight-warning
+              (setf result (inject-preflight-warning result preflight-warning)))
+            (make-json-object
+             "jsonrpc" "2.0"
+             "id" id
+             "result" result))
+        (mcp-error (e)
+          (make-error-response id
+                               (mcp-error-code e)
+                               (mcp-error-message e)
+                               (mcp-error-data e)))
+        (error (e)
+          (make-error-response id +tool-execution-error+
+                               (format nil "Tool execution error: ~A" e))))))
+  )
 
 (defun record-tool-call (tool-name)
   "Record per-tool call counts and emit periodic debug summaries."
@@ -203,6 +216,34 @@
                         *tool-call-total*
                         (gethash "evaluate" *tool-call-counts* 0)
                         (tool-usage-snapshot))))
+
+(defparameter *symbolic-preflight-tools*
+  '("integrate" "limit" "solve")
+  "Tool names that should preflight-check for explicit assumptions.")
+
+(defun symbolic-preflight-warning (tool-name session)
+  "Return warning text if TOOL-NAME should warn due to missing assumptions."
+  (when (member tool-name *symbolic-preflight-tools* :test #'string=)
+    (incf *symbolic-call-total*)
+    (when (<= (mcp-session-assumption-count session) 0)
+      (incf *symbolic-calls-without-assumptions*)
+      (incf *symbolic-preflight-warnings*)
+      (format nil
+              "Preflight warning: no explicit assumptions in session. Before symbolic ~A, consider assume(a>0, b>0, ...) to avoid sign ambiguity and asksign stalls."
+              tool-name))))
+
+(defun inject-preflight-warning (result warning-text)
+  "Prepend WARNING-TEXT to successful tool RESULT content."
+  (let ((is-error (json-object-get result "isError")))
+    (if is-error
+        result
+        (let ((content (json-object-get result "content")))
+          (json-object-set result "content"
+                           (cons (make-json-object
+                                  "type" "text"
+                                  "text" warning-text)
+                                 content))
+          result))))
 
 (defun tool-usage-snapshot ()
   "Return an alist of tool-name . count sorted by descending count."
@@ -230,12 +271,19 @@
          (evaluate-pct (if (plusp *tool-call-total*)
                            (* 100.0 (/ evaluate-count *tool-call-total*))
                            0.0))
+         (symbolic-no-assume-pct (if (plusp *symbolic-call-total*)
+                                     (* 100.0 (/ *symbolic-calls-without-assumptions* *symbolic-call-total*))
+                                     0.0))
          (lines (loop for (name . count) in counts
                       collect (format nil "  ~A: ~D" name count))))
-    (format nil "Tool usage stats (process lifetime):~%total_calls: ~D~%evaluate_calls: ~D~%evaluate_percent: ~,2F~%counts:~%~{~A~%~}"
+    (format nil "Tool usage stats (process lifetime):~%total_calls: ~D~%evaluate_calls: ~D~%evaluate_percent: ~,2F~%symbolic_calls: ~D~%symbolic_calls_without_assumptions: ~D~%symbolic_calls_without_assumptions_percent: ~,2F~%symbolic_preflight_warnings: ~D~%counts:~%~{~A~%~}"
             *tool-call-total*
             evaluate-count
             evaluate-pct
+            *symbolic-call-total*
+            *symbolic-calls-without-assumptions*
+            symbolic-no-assume-pct
+            *symbolic-preflight-warnings*
             lines)))
 
 (define-mcp-tool "tool_usage_stats"

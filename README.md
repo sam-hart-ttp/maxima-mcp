@@ -316,12 +316,18 @@ All tools support a `format` parameter:
 - `evaluate` is intentionally a fallback tool.
 - Dedicated tools (for example `integrate`, `solve`, `factor`, `newton`) should be preferred whenever they match the task.
 - During `initialize`, the server returns this guidance in the `instructions` field so MCP clients can apply it directly.
+- For symbolic tools (`integrate`, `limit`, `solve`), the server emits a preflight warning when no explicit assumptions have been set in the current session.
 
 ## Observability
 
 - The server tracks per-tool invocation counts in-process.
 - With MCP debug logging enabled, it emits a periodic usage summary that includes total calls and `evaluate` call count.
 - This is intended to make overuse of `evaluate` visible without changing tool semantics.
+- `tool_usage_stats` also reports symbolic preflight counters:
+  - `symbolic_calls`
+  - `symbolic_calls_without_assumptions`
+  - `symbolic_calls_without_assumptions_percent`
+  - `symbolic_preflight_warnings`
 
 ### Subprocess Mode
 

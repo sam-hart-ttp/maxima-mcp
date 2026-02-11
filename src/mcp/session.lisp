@@ -15,6 +15,7 @@
   "MCP session state."
   (id (gensym "SESSION-") :type symbol)
   (variables (make-hash-table :test #'eq) :type hash-table)
+  (assumption-count 0 :type integer)
   (default-format :text :type keyword)
   (created-at (get-universal-time) :type integer))
 
@@ -143,6 +144,7 @@
   "Reset the session state. Clears tracked variables and resets Maxima."
   ;; Clear our tracking
   (clrhash (mcp-session-variables session))
+  (setf (mcp-session-assumption-count session) 0)
   ;; Reset Maxima's state
   (with-maxima-error-handling
     (maxima::mfuncall 'maxima::$reset))

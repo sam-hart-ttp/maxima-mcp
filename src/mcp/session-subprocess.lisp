@@ -14,6 +14,7 @@
   "MCP session state."
   (id (gensym "SESSION-") :type symbol)
   (variables (make-hash-table :test #'eq) :type hash-table)
+  (assumption-count 0 :type integer)
   (default-format :text :type keyword)
   (created-at (get-universal-time) :type integer))
 
@@ -78,6 +79,7 @@
 
 (defun reset-session (session)
   (clrhash (mcp-session-variables session))
+  (setf (mcp-session-assumption-count session) 0)
   ;; Reset Maxima via subprocess
   (subprocess-eval "reset()")
   session)

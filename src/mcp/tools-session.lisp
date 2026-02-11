@@ -122,6 +122,7 @@
           (progn
             ;; Clear our session tracking
             (clrhash (mcp-session-variables session))
+            (setf (mcp-session-assumption-count session) 0)
             (wrap-tool-result "done" :format format))))))
 
 ;;; ------------------------------------------------------------------
@@ -144,7 +145,9 @@
       (multiple-value-bind (result err) (parse-and-eval assume-expr)
         (if err
             (wrap-tool-result nil :is-error t :error-message err)
-            (wrap-tool-result result :format format))))))
+            (progn
+              (incf (mcp-session-assumption-count session))
+              (wrap-tool-result result :format format)))))))
 
 ;;; ------------------------------------------------------------------
 ;;; forget - Remove assumption
@@ -166,7 +169,11 @@
       (multiple-value-bind (result err) (parse-and-eval forget-expr)
         (if err
             (wrap-tool-result nil :is-error t :error-message err)
-            (wrap-tool-result result :format format))))))
+            (progn
+              ;; We cannot reliably infer exact active facts from a single forget().
+              (setf (mcp-session-assumption-count session)
+                    (max 0 (1- (mcp-session-assumption-count session))))
+              (wrap-tool-result result :format format)))))))
 
 ;;; ------------------------------------------------------------------
 ;;; list_assumptions - List current assumptions
