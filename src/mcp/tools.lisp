@@ -34,9 +34,18 @@
   (gethash name *mcp-tools*))
 
 (defun list-tools ()
-  "Return a list of all registered tools."
-  (loop for tool being the hash-values of *mcp-tools*
-        collect tool))
+  "Return a deterministic list of registered tools.
+   Tools are sorted by name, with evaluate intentionally last."
+  (let ((tools (loop for tool being the hash-values of *mcp-tools*
+                     collect tool)))
+    (sort tools
+          (lambda (a b)
+            (let ((name-a (mcp-tool-name a))
+                  (name-b (mcp-tool-name b)))
+              (cond
+                ((string= name-a "evaluate") nil)
+                ((string= name-b "evaluate") t)
+                (t (string-lessp name-a name-b))))))))
 
 (defun tool-exists-p (name)
   "Return T if a tool with NAME exists."

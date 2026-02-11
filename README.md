@@ -233,6 +233,9 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"evaluate",
 - `quotient` / `remainder` - Division (integer or polynomial)
 - `gcdex` - Extended GCD (Bezout coefficients)
 - `quad_qags` - Numerical integration
+- `newton` - Newton root finder (`newton` package)
+- `mnewton` - Newton solver for nonlinear systems (`mnewton` package)
+- `romberg` - Romberg numerical integration
 - `rk` - Runge-Kutta ODE solver
 - `solve_rec` - Recurrence relation solver
 - `set_plot_option` - Set global plot options
@@ -269,6 +272,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"evaluate",
 - `apropos` - Search for functions by name
 - `fundef` - Show function definition
 - `list_functions` - List defined functions
+- `tool_usage_stats` - Return in-process MCP tool usage counters
 - `capabilities` - List available tools
 - `version` - Get Maxima version info
 
@@ -293,6 +297,18 @@ All tools support a `format` parameter:
 - `latex` - LaTeX: `3\,x^2`
 - `mathml` - MathML markup
 - `lisp` - Internal Lisp representation
+
+## Tool Selection Policy
+
+- `evaluate` is intentionally a fallback tool.
+- Dedicated tools (for example `integrate`, `solve`, `factor`, `newton`) should be preferred whenever they match the task.
+- During `initialize`, the server returns this guidance in the `instructions` field so MCP clients can apply it directly.
+
+## Observability
+
+- The server tracks per-tool invocation counts in-process.
+- With MCP debug logging enabled, it emits a periodic usage summary that includes total calls and `evaluate` call count.
+- This is intended to make overuse of `evaluate` visible without changing tool semantics.
 
 ### Subprocess Mode
 

@@ -265,6 +265,118 @@
             (wrap-tool-result result :format format))))))
 
 ;;; ------------------------------------------------------------------
+;;; newton / mnewton / romberg - Numerical solvers
+;;; ------------------------------------------------------------------
+
+(defun ensure-newton-loaded ()
+  "Ensure newton package is loaded."
+  (multiple-value-bind (result err) (parse-and-eval "load(\"newton\")")
+    (declare (ignore result))
+    (when err
+      (signal-mcp-error +internal-error+ err))))
+
+(defun ensure-mnewton-loaded ()
+  "Ensure mnewton package is loaded."
+  (multiple-value-bind (result err) (parse-and-eval "load(\"mnewton\")")
+    (declare (ignore result))
+    (when err
+      (signal-mcp-error +internal-error+ err))))
+
+(define-mcp-tool "newton"
+    (:description "Find a numerical root with Newton's method (newton package).")
+  (("expression" "string" :description "Expression f(x) to solve as f(x)=0")
+   ("guess" "string" :description "Initial guess")
+   ("format" "string" :description "Output format: text, latex, mathml, or lisp" :required nil))
+  (let* ((expr (get-argument arguments "expression"))
+         (guess (get-argument arguments "guess"))
+         (format-str (get-argument arguments "format"))
+         (format (session-get-format session format-str)))
+    (unless expr
+      (signal-mcp-error +invalid-params+ "Missing required parameter: expression"))
+    (unless guess
+      (signal-mcp-error +invalid-params+ "Missing required parameter: guess"))
+    (let* ((base-call (format nil "newton(~A, ~A)" expr guess))
+           (call (if (using-subprocess-p)
+                     (format nil "load(\"newton\")$ ~A" base-call)
+                     (progn
+                       (ensure-newton-loaded)
+                       base-call))))
+      (multiple-value-bind (result err) (parse-and-eval call)
+        (if err
+            (wrap-tool-result nil :is-error t :error-message err)
+            (wrap-tool-result result :format format))))))
+
+(define-mcp-tool "mnewton"
+    (:description "Solve a nonlinear system with Newton's method (mnewton package).")
+  (("equations" "string" :description "Function/equation list, e.g. \"[x^2+y^2-2, x-y]\"")
+   ("variables" "string" :description "Variable list, e.g. \"[x,y]\"")
+   ("guesses" "string" :description "Initial guesses, e.g. \"[1,1]\"")
+   ("epsilon" "string" :description "Optional newtonepsilon override" :required nil)
+   ("max_iter" "number" :description "Optional newtonmaxiter override" :required nil)
+   ("debug" "boolean" :description "Optional newtondebug flag" :required nil)
+   ("format" "string" :description "Output format: text, latex, mathml, or lisp" :required nil))
+  (let* ((eqs (get-argument arguments "equations"))
+         (vars (get-argument arguments "variables"))
+         (guesses (get-argument arguments "guesses"))
+         (eps (get-argument arguments "epsilon"))
+         (max-iter (get-argument arguments "max_iter"))
+         (debug (get-argument arguments "debug"))
+         (format-str (get-argument arguments "format"))
+         (format (session-get-format session format-str)))
+    (unless eqs
+      (signal-mcp-error +invalid-params+ "Missing required parameter: equations"))
+    (unless vars
+      (signal-mcp-error +invalid-params+ "Missing required parameter: variables"))
+    (unless guesses
+      (signal-mcp-error +invalid-params+ "Missing required parameter: guesses"))
+    (let* ((opts (remove nil
+                         (list (and eps (format nil "newtonepsilon:~A" eps))
+                               (and max-iter (format nil "newtonmaxiter:~A" max-iter))
+                               (and (not (null debug))
+                                    (format nil "newtondebug:~A"
+                                            (if debug "true" "false"))))))
+           (base-call (if opts
+                          (format nil "(~{~A, ~} mnewton(~A, ~A, ~A))"
+                                  opts eqs vars guesses)
+                          (format nil "mnewton(~A, ~A, ~A)" eqs vars guesses)))
+           (call (if (using-subprocess-p)
+                     (format nil "load(\"mnewton\")$ ~A" base-call)
+                     (progn
+                       (ensure-mnewton-loaded)
+                       base-call))))
+      (multiple-value-bind (result err) (parse-and-eval call)
+        (if err
+            (wrap-tool-result nil :is-error t :error-message err)
+            (wrap-tool-result result :format format))))))
+
+(define-mcp-tool "romberg"
+    (:description "Numerical integration with Romberg method (romberg).")
+  (("expression" "string" :description "Integrand expression")
+   ("variable" "string" :description "Variable of integration")
+   ("lower" "string" :description "Lower limit")
+   ("upper" "string" :description "Upper limit")
+   ("format" "string" :description "Output format: text, latex, mathml, or lisp" :required nil))
+  (let* ((expr (get-argument arguments "expression"))
+         (var (get-argument arguments "variable"))
+         (lower (get-argument arguments "lower"))
+         (upper (get-argument arguments "upper"))
+         (format-str (get-argument arguments "format"))
+         (format (session-get-format session format-str)))
+    (unless expr
+      (signal-mcp-error +invalid-params+ "Missing required parameter: expression"))
+    (unless var
+      (signal-mcp-error +invalid-params+ "Missing required parameter: variable"))
+    (unless lower
+      (signal-mcp-error +invalid-params+ "Missing required parameter: lower"))
+    (unless upper
+      (signal-mcp-error +invalid-params+ "Missing required parameter: upper"))
+    (let ((call (format nil "romberg(~A, ~A, ~A, ~A)" expr var lower upper)))
+      (multiple-value-bind (result err) (parse-and-eval call)
+        (if err
+            (wrap-tool-result nil :is-error t :error-message err)
+            (wrap-tool-result result :format format))))))
+
+;;; ------------------------------------------------------------------
 ;;; rk - Runge-Kutta (numerical ODE)
 ;;; ------------------------------------------------------------------
 

@@ -11,7 +11,7 @@
 ;;; ------------------------------------------------------------------
 
 (define-mcp-tool "evaluate"
-    (:description "Evaluate a Maxima expression. This is the most general tool - it can evaluate any valid Maxima expression including arithmetic, algebra, calculus, and more.")
+    (:description "Evaluate a Maxima expression (fallback tool). Prefer dedicated tools such as integrate, solve, and factor when available.")
   (("expression" "string" :description "The Maxima expression to evaluate (e.g., \"2+2\", \"diff(x^2,x)\", \"integrate(sin(x),x)\")")
    ("format" "string" :description "Output format: text, latex, mathml, or lisp" :required nil))
 

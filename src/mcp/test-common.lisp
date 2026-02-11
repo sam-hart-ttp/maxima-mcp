@@ -41,7 +41,8 @@
   '(("abs" (("expression" "-5")) "abs")
     ("ident" (("size" 3)) "ident")
     ("length" (("list" "[1,2,3]")) "length")
-    ("evenp" (("value" 4)) "evenp"))
+    ("evenp" (("value" 4)) "evenp")
+    ("tool_usage_stats" () "tool_usage_stats"))
   "Miscellaneous test cases")
 
 (defparameter *extra-test-cases*
@@ -49,6 +50,9 @@
     ("logcontract" (("expression" "log(a)+log(b)")) "logcontract")
     ("realroots" (("expression" "x^2-2*x+1")) "realroots")
     ("allroots" (("expression" "x^2+1")) "allroots")
+    ("newton" (("expression" "x^2-2") ("guess" "1.0")) "newton")
+    ("mnewton" (("equations" "[x+y-3, x-y-1]") ("variables" "[x,y]") ("guesses" "[1,1]")) "mnewton")
+    ("romberg" (("expression" "sin(x)") ("variable" "x") ("lower" "0") ("upper" "%pi")) "romberg")
     ("rhs" (("equation" "4*x+1=2*x-2")) "rhs")
     ("lhs" (("equation" "4*x+1=2*x-2")) "lhs")
     ("map" (("function" "lambda([x],x^2)") ("list" "[1,2,3]")) "map")
@@ -68,6 +72,7 @@
 
 (defun run-single-test (tool-name args description)
   "Run a single test case and return (success result-text error-text)."
+  (declare (ignore description))
   (handler-case
       (let* ((arg-hash (make-hash-table :test #'equal)))
         (dolist (pair args)

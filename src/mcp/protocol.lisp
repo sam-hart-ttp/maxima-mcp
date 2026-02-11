@@ -20,6 +20,24 @@
 (defparameter *server-version* "0.1.0"
   "The server version.")
 
+(defparameter *tool-selection-policy*
+  (concatenate 'string
+               "Use dedicated tools whenever possible. "
+               "Treat evaluate as a fallback only when no specific tool exists.")
+  "Tool selection guidance returned during initialize.")
+
+(defparameter *tool-observability-log-interval* 25
+  "Emit an observability summary every N tool calls when debug logging is enabled.")
+
+(defvar *tool-call-counts* (make-hash-table :test #'equal)
+  "Per-tool invocation counters for observability.")
+
+(defvar *tool-call-total* 0
+  "Total number of tool invocations handled in this process.")
+
+(defvar *mcp-debug* nil
+  "When non-nil, enable debug output to stderr.")
+
 ;;; ------------------------------------------------------------------
 ;;; Request Handling
 ;;; ------------------------------------------------------------------
@@ -119,7 +137,8 @@
                                         "listChanged" :false))
              "serverInfo" (make-json-object
                            "name" *server-name*
-                           "version" *server-version*))))
+                           "version" *server-version*)
+             "instructions" *tool-selection-policy*)))
 
 ;;; ------------------------------------------------------------------
 ;;; Ping Handler
@@ -154,6 +173,7 @@
       (return-from handle-tools-call
         (make-error-response id +invalid-params+ "Missing tool name")))
 
+    (record-tool-call tool-name)
     (handler-case
         (let ((result (invoke-tool tool-name session (or arguments
                                                          (make-hash-table :test #'equal)))))
@@ -169,6 +189,57 @@
       (error (e)
         (make-error-response id +tool-execution-error+
                              (format nil "Tool execution error: ~A" e))))))
+
+(defun record-tool-call (tool-name)
+  "Record per-tool call counts and emit periodic debug summaries."
+  (incf *tool-call-total*)
+  (incf (gethash tool-name *tool-call-counts* 0))
+  (when (and *mcp-debug*
+             (> *tool-observability-log-interval* 0)
+             (zerop (mod *tool-call-total* *tool-observability-log-interval*)))
+    (protocol-debug-log "Tool usage summary (total=~D, evaluate=~D): ~A"
+                        *tool-call-total*
+                        (gethash "evaluate" *tool-call-counts* 0)
+                        (tool-usage-snapshot))))
+
+(defun tool-usage-snapshot ()
+  "Return an alist of tool-name . count sorted by descending count."
+  (sort (loop for name being the hash-keys of *tool-call-counts*
+              using (hash-value count)
+              collect (cons name count))
+        #'>
+        :key #'cdr))
+
+(defun protocol-debug-log (format-string &rest args)
+  "Write a protocol debug message to stderr when debugging is enabled."
+  (when *mcp-debug*
+    (apply #'format *error-output* format-string args)
+    (fresh-line *error-output*)
+    (finish-output *error-output*)))
+
+;;; ------------------------------------------------------------------
+;;; tool_usage_stats - Observability for tool selection
+;;; ------------------------------------------------------------------
+
+(defun render-tool-usage-stats ()
+  "Render current tool usage counters as human-readable text."
+  (let* ((counts (tool-usage-snapshot))
+         (evaluate-count (gethash "evaluate" *tool-call-counts* 0))
+         (evaluate-pct (if (plusp *tool-call-total*)
+                           (* 100.0 (/ evaluate-count *tool-call-total*))
+                           0.0))
+         (lines (loop for (name . count) in counts
+                      collect (format nil "  ~A: ~D" name count))))
+    (format nil "Tool usage stats (process lifetime):~%total_calls: ~D~%evaluate_calls: ~D~%evaluate_percent: ~,2F~%counts:~%~{~A~%~}"
+            *tool-call-total*
+            evaluate-count
+            evaluate-pct
+            lines)))
+
+(define-mcp-tool "tool_usage_stats"
+    (:description "Return in-process MCP tool usage counters (total calls, evaluate calls/percentage, and per-tool counts).")
+  ()
+  (wrap-tool-result (render-tool-usage-stats) :format :text))
 
 ;;; ------------------------------------------------------------------
 ;;; Resources Handlers (Minimal Implementation)
