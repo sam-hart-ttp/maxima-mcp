@@ -75,6 +75,45 @@
 (defvar *maxima-initialized* nil
   "Whether Maxima has been initialized.")
 
+(defun find-system-maxima-share-paths ()
+  "Find and return system Maxima share paths that should be added to file search.
+   Returns a list of directory patterns suitable for file_search_maxima."
+  (let ((paths nil))
+    ;; Check common system Maxima installation paths
+    (dolist (base-dir '("/usr/share/maxima/"
+                        "/usr/local/share/maxima/"
+                        "/opt/maxima/share/"))
+      (when (probe-file base-dir)
+        (let ((dir (probe-file base-dir)))
+          (when dir
+            ;; Find version directories
+            (dolist (entry (ignore-errors (uiop:subdirectories dir)))
+              (let ((share-dir (merge-pathnames "share/" entry)))
+                (when (probe-file share-dir)
+                  ;; Add pattern for .mac files in share/**
+                  (push (format nil "~A**/*.mac"
+                                (namestring (truename share-dir)))
+                        paths)
+                  (push (format nil "~A**/*.lisp"
+                                (namestring (truename share-dir)))
+                        paths))))))))
+    (nreverse paths)))
+
+(defun add-system-share-paths ()
+  "Add system Maxima share directories to file search paths."
+  (let ((extra-paths (find-system-maxima-share-paths)))
+    (when extra-paths
+      ;; Add to $file_search_maxima
+      (dolist (path extra-paths)
+        (when (search ".mac" path)
+          (setf maxima::$file_search_maxima
+                (append maxima::$file_search_maxima (list path)))))
+      ;; Add to $file_search_lisp
+      (dolist (path extra-paths)
+        (when (search ".lisp" path)
+          (setf maxima::$file_search_lisp
+                (append maxima::$file_search_lisp (list path))))))))
+
 (defun ensure-maxima-initialized ()
   "Ensure Maxima runtime is initialized."
   (unless *maxima-initialized*
@@ -82,6 +121,8 @@
         (progn
           ;; Initialize Maxima runtime globals
           (maxima::initialize-runtime-globals)
+          ;; Add system share paths as fallback
+          (add-system-share-paths)
           ;; Set some defaults for non-interactive use
           (setf maxima::$display2d nil)  ; Use 1D display by default
           (setf *maxima-initialized* t))
