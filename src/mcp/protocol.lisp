@@ -103,6 +103,8 @@
     ;; Resource methods (minimal implementation)
     ((equal method "resources/list")
      (handle-resources-list id))
+    ((equal method "resources/templates/list")
+     (handle-resources-templates-list id))
     ((equal method "resources/read")
      (handle-resources-read params id))
 
@@ -242,21 +244,187 @@
   (wrap-tool-result (render-tool-usage-stats) :format :text))
 
 ;;; ------------------------------------------------------------------
-;;; Resources Handlers (Minimal Implementation)
+;;; Resources Handlers (Documentation v1)
 ;;; ------------------------------------------------------------------
 
 (defun handle-resources-list (id)
-  "Handle the resources/list request. Returns empty list."
+  "Handle the resources/list request."
   (make-json-object
    "jsonrpc" "2.0"
    "id" id
    "result" (make-json-object
-             "resources" #())))
+             "resources"
+             (list
+              (make-json-object
+               "uri" "maxima://docs/index"
+               "name" "Maxima MCP documentation index"
+               "description" "Entry point for MCP documentation resources and templates."
+               "mimeType" "text/markdown")))))
+
+(defun handle-resources-templates-list (id)
+  "Handle the resources/templates/list request."
+  (make-json-object
+   "jsonrpc" "2.0"
+   "id" id
+   "result" (make-json-object
+             "resourceTemplates"
+             (list
+              (make-json-object
+               "uriTemplate" "maxima://docs/topic/{name}"
+               "name" "Maxima topic documentation"
+               "description" "Documentation for a Maxima topic via describe(name)."
+               "mimeType" "text/markdown")))))
+
+(defun starts-with (string prefix)
+  "Return T if STRING starts with PREFIX."
+  (and (stringp string)
+       (stringp prefix)
+       (>= (length string) (length prefix))
+       (string= prefix string :end2 (length prefix))))
+
+(defun valid-doc-topic-char-p (ch)
+  "Return T if CH is valid in a docs/topic identifier."
+  (or (alphanumericp ch)
+      (find ch "-_+$%?!" :test #'char=)))
+
+(defun sanitize-doc-topic (name)
+  "Sanitize NAME for use in describe(NAME). Returns NIL if invalid."
+  (when (and (stringp name) (> (length name) 0))
+    (let ((trimmed (string-trim '(#\Space #\Tab #\Newline #\Return #\/) name)))
+      (when (and (> (length trimmed) 0)
+                 (every #'valid-doc-topic-char-p trimmed))
+        trimmed))))
+
+(defun slurp-file-contents (pathname)
+  "Read PATHNAME and return full text as a string."
+  (with-open-file (in pathname :direction :input)
+    (with-output-to-string (out)
+      (loop for line = (read-line in nil nil)
+            while line
+            do (write-line line out)))))
+
+(defun local-doc-path-candidates (topic)
+  "Return candidate local documentation files for TOPIC."
+  (list (format nil "doc/~A.md" topic)
+        (format nil "doc/topics/~A.md" topic)
+        (format nil "doc/~A.txt" topic)
+        (format nil "doc/topics/~A.txt" topic)))
+
+(defun read-local-topic-doc (topic)
+  "Return local docs text for TOPIC if available, else NIL."
+  (loop for candidate in (local-doc-path-candidates topic)
+        for path = (probe-file candidate)
+        when path
+          do (return (slurp-file-contents path))
+        finally (return nil)))
+
+(defun parse-apropos-items (apropos-text)
+  "Parse apropos output like [a,b,c] into a list of strings."
+  (let* ((trimmed (string-trim '(#\Space #\Tab #\Newline #\Return) apropos-text)))
+    (if (and (> (length trimmed) 1)
+             (char= (char trimmed 0) #\[)
+             (char= (char trimmed (1- (length trimmed))) #\]))
+        (let ((inner (subseq trimmed 1 (1- (length trimmed)))))
+          (remove-if (lambda (s) (zerop (length s)))
+                     (mapcar (lambda (s)
+                               (string-trim '(#\Space #\Tab #\Newline #\Return) s))
+                             (uiop:split-string inner :separator '(#\,)))))
+        nil)))
+
+(defun build-topic-doc (topic uri)
+  "Build topic documentation and return two values: markdown and structured JSON object.
+   Uses local doc/ files first, then apropos fallback. Avoids describe() side effects."
+  (let* ((local-doc (read-local-topic-doc topic))
+         (apropos-call (format nil "apropos(\"~A\")" topic))
+         (apropos-text nil)
+         (apropos-items nil)
+         (source "error")
+         (markdown nil))
+    (when local-doc
+      (setf source "local_docs"
+            markdown (format nil "# ~A~%~%Source: local docs (`./doc`)~%~%~A~%"
+                             topic local-doc)))
+    (multiple-value-bind (apropos-result apropos-err) (parse-and-eval apropos-call)
+      (unless apropos-err
+        (setf apropos-text (if (stringp apropos-result)
+                               apropos-result
+                               (format-result apropos-result :text))
+              apropos-items (parse-apropos-items apropos-text))))
+    (unless markdown
+      (if apropos-text
+          (progn
+            (setf source "apropos_fallback"
+                  markdown (format nil "# ~A~%~%No local doc file found under `./doc`.~%Using `apropos(\"~A\")` fallback:~%~%```text~%~A~%```~%"
+                                   topic topic apropos-text)))
+          (setf source "error"
+                markdown (format nil "# ~A~%~%Unable to fetch documentation from `./doc` or `apropos(\"~A\")`.~%"
+                                 topic topic))))
+    (values markdown
+            (make-json-object
+             "topic" topic
+             "uri" uri
+             "source" source
+             "hasLocalDocs" (if local-doc t :false)
+             "describeSuccess" :false
+             "describeError" :null
+             "apropos" (or apropos-items '())
+             "markdown" markdown))))
+
+(defun docs-index-markdown ()
+  "Return markdown documentation index."
+  (with-output-to-string (s)
+    (format s "# Maxima MCP Docs~%~%")
+    (format s "Available resources:~%")
+    (format s "- `maxima://docs/index`~%~%")
+    (format s "Available templates:~%")
+    (format s "- `maxima://docs/topic/{name}`~%~%")
+    (format s "Examples:~%")
+    (format s "- `maxima://docs/topic/integrate`~%")
+    (format s "- `maxima://docs/topic/solve`~%")
+    (format s "- `maxima://docs/topic/plot2d`~%")))
 
 (defun handle-resources-read (params id)
   "Handle the resources/read request."
-  (declare (ignore params))
-  (make-error-response id +method-not-found+ "No resources available"))
+  (let ((uri (json-object-get params "uri")))
+    (unless (and uri (stringp uri))
+      (return-from handle-resources-read
+        (make-error-response id +invalid-params+ "Missing or invalid resource uri")))
+    (cond
+      ((string= uri "maxima://docs/index")
+       (make-json-object
+        "jsonrpc" "2.0"
+        "id" id
+        "result" (make-json-object
+                  "contents"
+                  (list (make-json-object
+                         "uri" uri
+                         "mimeType" "text/markdown"
+                         "text" (docs-index-markdown))))))
+      ((starts-with uri "maxima://docs/topic/")
+       (let* ((raw-topic (subseq uri (length "maxima://docs/topic/")))
+              (topic (sanitize-doc-topic raw-topic)))
+         (unless topic
+           (return-from handle-resources-read
+             (make-error-response id +invalid-params+
+                                  (format nil "Invalid docs topic in URI: ~A" uri))))
+         (multiple-value-bind (topic-markdown topic-structured)
+             (build-topic-doc topic uri)
+           (make-json-object
+            "jsonrpc" "2.0"
+            "id" id
+            "result" (make-json-object
+                      "contents"
+                      (list (make-json-object
+                             "uri" uri
+                             "mimeType" "text/markdown"
+                             "text" topic-markdown)
+                            (make-json-object
+                             "uri" uri
+                             "mimeType" "application/json"
+                             "text" (json-encode-to-string topic-structured))))))))
+      (t
+       (make-error-response id +invalid-params+
+                            (format nil "Unknown resource URI: ~A" uri))))))
 
 ;;; ------------------------------------------------------------------
 ;;; Prompts Handlers (Minimal Implementation)

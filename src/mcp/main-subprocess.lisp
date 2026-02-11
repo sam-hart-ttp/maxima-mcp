@@ -85,5 +85,32 @@
                      session)))
       (format t "   Response: ~A~%~%" response))
 
+    ;; Test resources/list
+    (format t "4. Testing resources/list...~%")
+    (let ((response (process-single-request
+                     "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"resources/list\",\"params\":{}}"
+                     session)))
+      (format t "   Found ~A resources~%~%"
+              (length (json-object-get
+                       (json-object-get (json-decode response) "result")
+                       "resources"))))
+
+    ;; Test resources/templates/list
+    (format t "5. Testing resources/templates/list...~%")
+    (let ((response (process-single-request
+                     "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"resources/templates/list\",\"params\":{}}"
+                     session)))
+      (format t "   Found ~A resource templates~%~%"
+              (length (json-object-get
+                       (json-object-get (json-decode response) "result")
+                       "resourceTemplates"))))
+
+    ;; Test resources/read
+    (format t "6. Testing resources/read (docs/index)...~%")
+    (let ((response (process-single-request
+                     "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"resources/read\",\"params\":{\"uri\":\"maxima://docs/index\"}}"
+                     session)))
+      (format t "   Response: ~A~%~%" (subseq response 0 (min 120 (length response)))))
+
     (format t "Protocol tests completed!~%")
     (stop-maxima-subprocess)))

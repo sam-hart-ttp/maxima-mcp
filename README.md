@@ -9,6 +9,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for [M
 - **Algebra**: Simplification, factoring, expansion, partial fractions
 - **Linear Algebra**: Matrices, determinants, eigenvalues, inverses
 - **Session State**: Variable assignment, assumptions, function definitions
+- **Documentation Resources**: MCP resources for docs index and topic lookups
 - **Multiple Output Formats**: Text, LaTeX, MathML, Lisp
 
 ## Installation
@@ -125,6 +126,18 @@ The derivative is 3*x^2*sin(x) + x^3*cos(x)
 # Test with JSON-RPC
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"evaluate","arguments":{"expression":"diff(x^3,x)"}}}' | ./maxima-mcp
 ```
+
+### Documentation Resources (MCP)
+
+- Resource: `maxima://docs/index`
+- Resource template: `maxima://docs/topic/{name}`
+- Topic docs return two content entries:
+  - `text/markdown` narrative docs
+  - `application/json` structured metadata (`source`, `topic`, `hasLocalDocs`, `apropos`, and markdown copy)
+- Topic docs use local `./doc` files when available, with `apropos(name)` fallback.
+- Optional local overrides are supported from `./doc`:
+  - `doc/<topic>.md`, `doc/topics/<topic>.md`
+  - `doc/<topic>.txt`, `doc/topics/<topic>.txt`
 
 ## Available Tools
 
