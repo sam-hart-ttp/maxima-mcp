@@ -44,3 +44,8 @@ gp_image_01.png
 interfaces/emacs/imaxima/texinfo.tex
 auto/
 /build-html-index.log
+
+references
+__pycache__
+build
+maxima-mcp
