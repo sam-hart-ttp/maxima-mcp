@@ -1,0 +1,14 @@
+interface:
+  display_name: "Maxima Linear Algebra"
+  short_description: "Compute matrix results with Maxima"
+  default_prompt: "Use $maxima-linear-algebra to compute the matrix result with Maxima MCP and summarize the outcome."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "maxima"
+      description: "Maxima MCP server for matrix and linear-algebra operations"
+      transport: "stdio"
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,5 @@
+{
+  "name": "mcp-math",
+  "description": "Routes mathematics tasks to the maxima-mcp CAS tools",
+  "version": "1.0.0"
+}

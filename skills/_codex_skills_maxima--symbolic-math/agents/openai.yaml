@@ -1,0 +1,14 @@
+interface:
+  display_name: "Maxima Symbolic Math"
+  short_description: "Solve symbolic algebra and calculus with Maxima"
+  default_prompt: "Use $maxima-symbolic-math to solve the mathematics with Maxima MCP and explain the result concisely."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "maxima"
+      description: "Maxima MCP server for symbolic mathematics"
+      transport: "stdio"
+
+policy:
+  allow_implicit_invocation: true
