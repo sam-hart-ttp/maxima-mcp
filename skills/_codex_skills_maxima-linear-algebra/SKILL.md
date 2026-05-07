@@ -13,6 +13,7 @@ Use the `maxima` MCP for matrix and linear-algebra work. Prefer exact symbolic a
 - Reach for dedicated tools first: `determinant`, `invert`, `rank`, `echelon`, `triangularize`, `charpoly`, `eigenvalues`, `eigenvectors`, `nullspace`, `transpose`, `trace_matrix`, `matrix_multiply`, `solve_linear`, `linsolve`, `fast_linsolve`.
 - Use `float` or `bfloat` only after the symbolic structure is understood.
 - Reset the Maxima session if prior assignments or assumptions might contaminate the computation.
+- Keep variable ordering explicit for systems, characteristic polynomials, null spaces, and eigenspaces.
 
 ## Workflow
 
@@ -29,9 +30,19 @@ Use the `maxima` MCP for matrix and linear-algebra work. Prefer exact symbolic a
 - Row reduction and solving: `echelon`, `triangularize`, `solve_linear`, `linsolve`, `fast_linsolve`, `coefmatrix`, `augcoefmatrix`
 - Spectral analysis: `eigenvalues`, `eigenvectors`
 - Inverses and exact arithmetic cleanup: `invert`, `simplify`, `ratsimp`, `fullratsimp`
+- Discovery: `describe`, `example`, `apropos`, or `read_mcp_resource` on `maxima://docs/topic/{name}`
+
+## Common Workflows
+
+- Linear system from equations: keep the variable list explicit, then use `linsolve`; use `coefmatrix`/`augcoefmatrix` when the user needs matrix form.
+- Linear system from `A x = b`: use `solve_linear` with the coefficient matrix and RHS vector.
+- Large or sparse linear systems: try `fast_linsolve`, then simplify the result with `ratsimp` or `fullratsimp` if needed.
+- Eigen workflows: call `charpoly` when the characteristic polynomial matters; call `eigenvalues` and then `eigenvectors` for eigenspaces.
+- Invertibility checks: compute `determinant` or `rank` before `invert` when singularity is plausible.
 
 ## Quality Rules
 
 - Do not hand-compute row operations or determinants unless the user explicitly wants a worked derivation.
 - Keep matrix dimensions and variable ordering explicit in the answer.
 - Call out when a result depends on singularity, rank deficiency, or repeated eigenvalues.
+- If the user wants a derivation, use Maxima to verify the arithmetic and present the mathematical steps separately.
