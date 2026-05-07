@@ -127,6 +127,80 @@ Claude: [Uses differentiate tool]
 The derivative is 3*x^2*sin(x) + x^3*cos(x)
 ```
 
+### With Codex CLI
+
+Add an MCP server entry to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.maxima]
+command = "/path/to/maxima-mcp"
+args = []
+```
+
+For a checkout build, use the project-root executable:
+
+```toml
+[mcp_servers.maxima]
+command = "/home/you/path/to/maxima-mcp/maxima-mcp"
+args = []
+```
+
+On Windows, point `command` at the built executable, for example:
+
+```toml
+[mcp_servers.maxima]
+command = "C:\\Users\\you\\path\\to\\maxima-mcp\\maxima-mcp.exe"
+args = []
+```
+
+Optional: pre-approve frequently used read-only or deterministic tools so Codex
+does not need to ask before every call:
+
+```toml
+[mcp_servers.maxima.tools.capabilities]
+approval_mode = "approve"
+
+[mcp_servers.maxima.tools.integrate]
+approval_mode = "approve"
+
+[mcp_servers.maxima.tools.differentiate]
+approval_mode = "approve"
+```
+
+Restart Codex after editing `~/.codex/config.toml`, then run `codex mcp list`
+or use the Codex MCP list command available in your version to confirm that
+the `maxima` server, tools, resources, and resource templates are visible.
+
+### Codex Skills
+
+This repository includes Codex skills that teach Codex when and how to use the
+Maxima MCP tools:
+
+- `skills/_codex_skills_maxima-symbolic-math` - calculus, algebra, equation solving, simplification, limits, series, transforms, and exact/numerical evaluation.
+- `skills/_codex_skills_maxima-linear-algebra` - matrices, determinants, inverses, eigenvalues, eigenvectors, null spaces, ranks, traces, and linear systems.
+
+Install them by copying each skill directory into `~/.codex/skills/` with the
+final skill name as the directory name:
+
+```bash
+mkdir -p ~/.codex/skills
+cp -R skills/_codex_skills_maxima-symbolic-math ~/.codex/skills/maxima-symbolic-math
+cp -R skills/_codex_skills_maxima-linear-algebra ~/.codex/skills/maxima-linear-algebra
+```
+
+On Windows PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force $env:USERPROFILE\.codex\skills
+Copy-Item -Recurse -Force skills\_codex_skills_maxima-symbolic-math $env:USERPROFILE\.codex\skills\maxima-symbolic-math
+Copy-Item -Recurse -Force skills\_codex_skills_maxima-linear-algebra $env:USERPROFILE\.codex\skills\maxima-linear-algebra
+```
+
+Restart Codex after installing or updating skills. Once loaded, Codex should
+automatically use these skills for matching symbolic-math and linear-algebra
+tasks, and can also be prompted explicitly with names such as
+`maxima-symbolic-math` or `maxima-linear-algebra`.
+
 ### Standalone Testing
 
 ```bash
