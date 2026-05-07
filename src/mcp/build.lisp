@@ -16,7 +16,8 @@
 ;;; Configuration
 ;;; ------------------------------------------------------------------
 
-(defparameter *output-name* "maxima-mcp"
+(defparameter *output-name* #+windows "maxima-mcp.exe"
+                            #-windows "maxima-mcp"
   "Name of the output executable.")
 
 (defparameter *output-directory* (truename "../../")
@@ -68,7 +69,6 @@
      (namestring output-path)
      :toplevel #'maxima-mcp:main
      :executable t
-     :compression t
      :save-runtime-options t))
 
   #+ccl

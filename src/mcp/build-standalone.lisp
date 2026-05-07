@@ -8,6 +8,33 @@
 
 (in-package :cl-user)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (require :asdf))
+
+(defparameter *windows-host-p*
+  (uiop:os-windows-p)
+  "True when building on Windows.")
+
+(defun getenv-or (name default)
+  "Return environment variable NAME or DEFAULT when it is unset."
+  (or (uiop:getenv name) default))
+
+(defun sbcl-program ()
+  "Return the current SBCL executable name."
+  (or (and (boundp 'sb-ext:*posix-argv*)
+           (first sb-ext:*posix-argv*))
+      "sbcl"))
+
+(defun executable-name (basename)
+  "Return BASENAME with a Windows executable extension when needed."
+  (if *windows-host-p*
+      (format nil "~A.exe" basename)
+      basename))
+
+(defun trim-text (string)
+  "Trim common surrounding whitespace from STRING."
+  (string-trim '(#\Space #\Tab #\Newline #\Return) string))
+
 (format t "~%=== Building Maxima MCP Standalone Executable ===~%~%")
 
 ;;; ------------------------------------------------------------------
@@ -31,6 +58,20 @@
 (format t "Root directory: ~A~%" *root-dir*)
 
 ;;; ------------------------------------------------------------------
+;;; Windows Source-Tree Configuration
+;;; ------------------------------------------------------------------
+
+(when *windows-host-p*
+  (format t "~%Configuring Maxima source tree for Windows...~%")
+  (let ((*default-pathname-defaults* *root-dir*))
+    (load (merge-pathnames "configure.lisp" *root-dir*))
+    (funcall (find-symbol "CONFIGURE" :cl-user)
+             :interactive nil
+             :is-win32 t
+             :maxima-directory (uiop:native-namestring *root-dir*)
+             :sbcl-name (sbcl-program))))
+
+;;; ------------------------------------------------------------------
 ;;; Optional: Use Prebuilt Core (opt-in)
 ;;; ------------------------------------------------------------------
 
@@ -40,14 +81,12 @@
 
 #+sbcl
 (when (and (probe-file *maxima-core-path*)
-           (string= (or (sb-ext:posix-getenv "MAXIMA_MCP_USE_CORE") "") "1"))
+           (string= (getenv-or "MAXIMA_MCP_USE_CORE" "") "1"))
   (format t "~%Found Maxima core at ~A~%" *maxima-core-path*)
   (format t "Using build-with-core.lisp (MAXIMA_MCP_USE_CORE=1).~%")
-  (let* ((sbcl (or (and (boundp 'sb-ext:*posix-argv*)
-                        (first sb-ext:*posix-argv*))
-                   "sbcl"))
+  (let* ((sbcl (sbcl-program))
          (build-script (merge-pathnames "build-with-core.lisp" *mcp-dir*))
-         (output-path (merge-pathnames "maxima-mcp" *root-dir*))
+         (output-path (merge-pathnames (executable-name "maxima-mcp") *root-dir*))
          (args (list "--core" (namestring *maxima-core-path*)
                      "--noinform"
                      "--eval" (format nil "(load ~S)" (namestring build-script))
@@ -66,9 +105,9 @@
 ;;; ------------------------------------------------------------------
 
 #+sbcl
-(let* ((requested-stack-mb (or (sb-ext:posix-getenv "MAXIMA_MCP_CONTROL_STACK_MB") "512"))
-       (requested-dyn-mb (or (sb-ext:posix-getenv "MAXIMA_MCP_DYNAMIC_SPACE_MB") "4096"))
-       (reexec (sb-ext:posix-getenv "MAXIMA_MCP_REEXEC")))
+(let* ((requested-stack-mb (getenv-or "MAXIMA_MCP_CONTROL_STACK_MB" "512"))
+       (requested-dyn-mb (getenv-or "MAXIMA_MCP_DYNAMIC_SPACE_MB" "4096"))
+       (reexec (member :maxima-mcp-reexec *features*)))
   (when (and (not reexec)
              (or (string/= requested-stack-mb "") (string/= requested-dyn-mb "")))
     (let* ((stack-mb (or (parse-integer requested-stack-mb :junk-allowed t) 512))
@@ -76,21 +115,18 @@
            (dyn-mb (or (parse-integer requested-dyn-mb :junk-allowed t) 4096)))
       (format t "~%Re-executing SBCL with --control-stack-size ~A KB and --dynamic-space-size ~A MB...~%"
               stack-kb dyn-mb)
-      (let* ((sbcl (or (and (boundp 'sb-ext:*posix-argv*)
-                            (first sb-ext:*posix-argv*))
-                       "sbcl"))
+      (let* ((sbcl (sbcl-program))
              (script (namestring *load-truename*))
              (args (list "--control-stack-size" (princ-to-string stack-kb)
                          "--dynamic-space-size" (princ-to-string dyn-mb)
                          "--noinform"
                          "--non-interactive"
-                         "--load" script))
-             (env (cons "MAXIMA_MCP_REEXEC=1" (sb-ext:posix-environ))))
+                         "--eval" "(pushnew :maxima-mcp-reexec *features*)"
+                         "--load" script)))
         (sb-ext:run-program sbcl args
                             :output t
                             :error t
-                            :search t
-                            :environment env)
+                            :search t)
         (sb-ext:exit :code 0)))))
 
 ;;; ------------------------------------------------------------------
@@ -120,6 +156,20 @@
 ;;; ------------------------------------------------------------------
 
 (let ((*default-pathname-defaults* *src-dir*))
+  #+sbcl
+  (let* ((binary-dir (merge-pathnames "binary-sbcl/" *src-dir*))
+         (version-file (merge-pathnames ".sbcl-version" binary-dir))
+         (current-version (lisp-implementation-version))
+         (cached-version (when (probe-file version-file)
+                           (with-open-file (in version-file :direction :input)
+                             (trim-text (read-line in nil ""))))))
+    (when (and (probe-file binary-dir)
+               (not (and cached-version (string= cached-version current-version))))
+      (format t "Clearing existing SBCL build cache at ~A...~%" binary-dir)
+      (uiop:delete-directory-tree binary-dir :validate t :if-does-not-exist :ignore))
+    (ensure-directories-exist binary-dir)
+    (with-open-file (out version-file :direction :output :if-exists :supersede :if-does-not-exist :create)
+      (write-string current-version out)))
   (format t "Compiling Maxima (this may take a while)...~%")
   (load (merge-pathnames "maxima-build.lisp" *src-dir*))
   (funcall (find-symbol "MAXIMA-COMPILE" :cl-user))
@@ -177,11 +227,10 @@
 ;;; Save Executable
 ;;; ------------------------------------------------------------------
 
-(let ((output-path (merge-pathnames "maxima-mcp" *root-dir*)))
+(let ((output-path (merge-pathnames (executable-name "maxima-mcp") *root-dir*)))
   (format t "~%Saving executable to ~A...~%" output-path)
   (sb-ext:save-lisp-and-die
    (namestring output-path)
    :toplevel #'maxima-mcp:main
    :executable t
-   :compression t
    :save-runtime-options t))

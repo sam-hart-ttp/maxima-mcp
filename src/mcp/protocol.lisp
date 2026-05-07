@@ -14,6 +14,15 @@
 (defparameter *mcp-protocol-version* "2024-11-05"
   "The MCP protocol version supported.")
 
+(defun negotiated-protocol-version (params)
+  "Return the protocol version to include in an initialize response."
+  (let ((requested-version (and (hash-table-p params)
+                                (json-object-get params "protocolVersion"))))
+    (if (and (stringp requested-version)
+             (plusp (length requested-version)))
+        requested-version
+        *mcp-protocol-version*)))
+
 (defparameter *server-name* "maxima-mcp"
   "The server name for MCP identification.")
 
@@ -132,12 +141,11 @@
 
 (defun handle-initialize (params id)
   "Handle the initialize request."
-  (declare (ignore params))
   (make-json-object
    "jsonrpc" "2.0"
    "id" id
    "result" (make-json-object
-             "protocolVersion" *mcp-protocol-version*
+             "protocolVersion" (negotiated-protocol-version params)
              "capabilities" (make-json-object
                              "tools" (make-json-object
                                       "listChanged" :false)

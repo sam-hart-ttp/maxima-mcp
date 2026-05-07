@@ -38,7 +38,6 @@
    output-path
    :toplevel #'main
    :executable t
-   :compression t
    :save-runtime-options t))
 
 ;;; ------------------------------------------------------------------

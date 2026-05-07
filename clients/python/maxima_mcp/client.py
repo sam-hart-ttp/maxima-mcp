@@ -10,6 +10,7 @@ import subprocess
 import os
 import sys
 import threading
+import shutil
 from collections import deque
 from queue import Queue, Empty
 from typing import Any, Deque, Dict, List, Optional, Union
@@ -68,6 +69,7 @@ class MaximaMCPClient:
         self._stderr_buffer: Deque[str] = deque(maxlen=50)
         self._stderr_lock = threading.Lock()
         self._timeout = timeout
+        self._startup_timeout = float(os.environ.get("MAXIMA_MCP_STARTUP_TIMEOUT", "300"))
         self._stdout_queue: Queue[Optional[str]] = Queue()
         self._stdout_thread: Optional[threading.Thread] = None
 
@@ -81,27 +83,80 @@ class MaximaMCPClient:
 
     def _find_server_command(self) -> List[str]:
         """Find the server command to use."""
-        # Check for maxima-mcp in PATH
-        import shutil
+        env_server = os.environ.get("MAXIMA_MCP_SERVER")
+        if env_server:
+            return [env_server]
 
-        if shutil.which("maxima-mcp"):
-            return ["maxima-mcp"]
+        server_names = ["maxima-mcp"]
+        if os.name == "nt":
+            server_names = ["maxima-mcp.exe", "maxima-mcp.bat", "maxima-mcp.cmd"]
+
+        for server_name in server_names:
+            resolved = shutil.which(server_name)
+            if resolved:
+                return [resolved]
 
         # Check for a local build
-        local_paths = [
-            "./maxima-mcp",
-            "../maxima-mcp",
-            "../../maxima-mcp",
-        ]
+        if os.name == "nt":
+            local_paths = [
+                "./maxima-mcp.exe",
+                "../maxima-mcp.exe",
+                "../../maxima-mcp.exe",
+                "./maxima-mcp.bat",
+                "../maxima-mcp.bat",
+                "../../maxima-mcp.bat",
+                "./maxima-mcp.cmd",
+                "../maxima-mcp.cmd",
+                "../../maxima-mcp.cmd",
+            ]
+        else:
+            local_paths = [
+                "./maxima-mcp",
+                "../maxima-mcp",
+                "../../maxima-mcp",
+            ]
+
         for path in local_paths:
             if os.path.isfile(path) and os.access(path, os.X_OK):
                 return [path]
 
-        # Fall back to running via SBCL with quicklisp
+        sbcl_command = "sbcl"
+        if os.name == "nt":
+            sbcl_command = shutil.which("sbcl.exe") or shutil.which("sbcl") or os.path.join(
+                os.environ.get("LOCALAPPDATA", ""),
+                "Programs",
+                "SBCL",
+                "sbcl.exe",
+            )
+
+        client_dir = os.path.dirname(os.path.abspath(__file__))
+        repo_root = os.path.abspath(os.path.join(client_dir, "..", "..", ".."))
+        runner_path = os.path.join(repo_root, "src", "mcp", "run-sbcl-server.lisp")
+        if os.path.isfile(runner_path):
+            return [
+                sbcl_command,
+                "--noinform",
+                "--non-interactive",
+                "--load",
+                runner_path,
+            ]
+
+        quicklisp_setup = os.path.join(os.path.expanduser("~"), "quicklisp", "setup.lisp")
+        quicklisp_load = (
+            f'(let ((setup {json.dumps(quicklisp_setup)})) '
+            '(unless (find-package :ql) '
+            '(if (probe-file setup) '
+            '(load setup) '
+            '(error "Quicklisp not found at ~A" setup))))'
+        )
+
+        # Fall back to a globally registered ASDF system when running outside a checkout.
         return [
-            "sbcl",
+            sbcl_command,
             "--noinform",
             "--non-interactive",
+            "--eval",
+            quicklisp_load,
             "--eval",
             "(ql:quickload :maxima-mcp)",
             "--eval",
@@ -242,10 +297,35 @@ class MaximaMCPClient:
         if not response_line:
             raise MaximaError(self._format_disconnect_error("Server disconnected unexpectedly"))
 
-        try:
-            response = json.loads(response_line)
-        except json.JSONDecodeError as exc:
-            raise MaximaError(self._format_disconnect_error(f"Invalid JSON from server: {exc}"))
+        non_json_count = 0
+        max_non_json_lines = 1000
+        while True:
+            stripped_response = response_line.lstrip()
+            try:
+                response = json.loads(response_line)
+                break
+            except json.JSONDecodeError as exc:
+                if stripped_response.startswith(("{", "[")):
+                    raise MaximaError(
+                        self._format_disconnect_error(f"Invalid JSON from server: {exc}")
+                    )
+
+                non_json_count += 1
+                with self._stderr_lock:
+                    self._stderr_buffer.append(f"server stdout: {response_line.rstrip()}")
+                if non_json_count > max_non_json_lines:
+                    raise MaximaError(
+                        self._format_disconnect_error(
+                            f"Server sent {max_non_json_lines} non-JSON lines"
+                        )
+                    )
+                response_line = self._readline_with_timeout(timeout)
+                while response_line is not None and response_line.strip() == "":
+                    response_line = self._readline_with_timeout(timeout)
+                if not response_line:
+                    raise MaximaError(
+                        self._format_disconnect_error("Server disconnected unexpectedly")
+                    )
 
         if response.get("id") != self._request_id:
             raise MaximaError(
@@ -268,16 +348,27 @@ class MaximaMCPClient:
     def _initialize(self):
         """Initialize the MCP connection."""
         if not self._initialized:
-            self._send_request(
-                "initialize",
-                {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {"name": "maxima-mcp-python", "version": "0.1.0"},
-                },
-            )
-            self._send_request("initialized", {})
-            self._initialized = True
+            last_error: Optional[Exception] = None
+            for _ in range(2):
+                try:
+                    self._send_request(
+                        "initialize",
+                        {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {},
+                            "clientInfo": {"name": "maxima-mcp-python", "version": "0.1.0"},
+                        },
+                        timeout=self._startup_timeout,
+                    )
+                    self._send_request("initialized", {}, timeout=self._startup_timeout)
+                    self._initialized = True
+                    return
+                except (MaximaError, BrokenPipeError, OSError) as exc:
+                    last_error = exc
+                    self.close()
+
+            if last_error is not None:
+                raise last_error
 
     def _call_tool(
         self,
@@ -302,13 +393,20 @@ class MaximaMCPClient:
         # Extract text content from result
         content = result.get("content", [])
         if content and isinstance(content, list):
+            text_parts: List[str] = []
             for item in content:
                 if isinstance(item, dict) and item.get("type") == "text":
                     text = item.get("text", "")
-                    # Check for error
-                    if result.get("isError"):
-                        raise MaximaError(text)
-                    return text
+                    if text:
+                        text_parts.append(text)
+
+            combined_text = "\n".join(text_parts)
+
+            if result.get("isError"):
+                raise MaximaError(combined_text or "Unknown error")
+
+            if combined_text:
+                return combined_text
         return ""
 
     def close(self):

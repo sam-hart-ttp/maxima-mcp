@@ -37,10 +37,48 @@
 ;;; Low-level Process Functions
 ;;; ------------------------------------------------------------------
 
+(defun resolve-command-path (name)
+  "Return the first PATH entry for NAME, or NIL if it cannot be found."
+  (handler-case
+      (let* ((cmd (if (uiop:os-windows-p)
+                      (list "where.exe" name)
+                      (list "sh" "-c" (format nil "command -v ~A" name))))
+             (out (uiop:run-program cmd :ignore-error-status t :output :string :error-output :string))
+             (trimmed (and (stringp out)
+                           (string-trim '(#\Space #\Tab #\Newline #\Return) out))))
+        (when (and trimmed (> (length trimmed) 0))
+          (first (remove-if #'(lambda (line) (zerop (length line)))
+                            (mapcar #'(lambda (line)
+                                        (string-trim '(#\Space #\Tab #\Newline #\Return) line))
+                                    (uiop:split-string trimmed :separator '(#\Newline #\Return)))))))
+    (error ()
+      nil)))
+
+(defun resolved-maxima-command ()
+  "Resolve the Maxima command to launch on the current host."
+  (let ((configured (uiop:getenv "MAXIMA_MCP_SUBPROCESS_COMMAND")))
+    (or (and configured
+             (string/= configured "")
+             configured)
+        (resolve-command-path "maxima")
+        (when (uiop:os-windows-p)
+          (or (resolve-command-path "maxima.bat")
+              (resolve-command-path "maxima.cmd")
+              (resolve-command-path "maxima.exe")))
+        "maxima")))
+
+(defun maxima-command-string ()
+  "Return the resolved Maxima command as a string."
+  (let ((command (resolved-maxima-command)))
+    (typecase command
+      (pathname (namestring command))
+      (string command)
+      (t "maxima"))))
+
 (defun launch-maxima-process ()
   "Launch Maxima as a subprocess. Returns (process input-stream output-stream)."
   (let ((process (uiop:launch-program
-                  '("maxima")
+                  (list (maxima-command-string))
                   :input :stream
                   :output :stream
                   :error-output :output
@@ -184,7 +222,7 @@
                         (values nil output))
                       (values output nil))))
               (let* ((batch-expr (format nil "display2d:false$~A" trimmed))
-                     (cmd (list "maxima" "-q" "--batch-string" batch-expr))
+                     (cmd (list (maxima-command-string) "-q" "--batch-string" batch-expr))
                      (out (uiop:run-program cmd :output :string :error-output :string :ignore-error-status t))
                      (o-pos (search "(%o" out :from-end t)))
                 (when *maxima-subprocess-debug*

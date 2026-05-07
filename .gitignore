@@ -49,3 +49,5 @@ references
 __pycache__
 build
 maxima-mcp
+maxima-mcp.exe
+maxima-mcp-*.log

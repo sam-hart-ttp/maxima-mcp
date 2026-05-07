@@ -66,12 +66,12 @@
 
 (format *error-output* "~%MCP components loaded.~%")
 
-(defun build-maxima-mcp (&optional (output-path "../../maxima-mcp"))
+(defun build-maxima-mcp (&optional (output-path #+windows "../../maxima-mcp.exe"
+                                              #-windows "../../maxima-mcp"))
   "Build the Maxima MCP executable."
   (format *error-output* "~%Building executable: ~A~%" output-path)
   (sb-ext:save-lisp-and-die
    output-path
    :toplevel #'maxima-mcp:main
    :executable t
-   :compression t
    :save-runtime-options t))

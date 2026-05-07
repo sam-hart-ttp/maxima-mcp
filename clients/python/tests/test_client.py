@@ -213,7 +213,7 @@ class TestErrors:
     def test_parse_error(self, client):
         """Test that parse errors are raised."""
         with pytest.raises(MaximaError):
-            client.evaluate("1 + + 2")
+            client.evaluate("1 + (")
 
     def test_undefined_variable(self, client):
         """Test undefined variable access."""

@@ -10,6 +10,23 @@
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
   "Base64 alphabet for encoding binary data.")
 
+(defun resolve-command-path (name)
+  "Return the first PATH entry for NAME, or NIL if it cannot be found."
+  (handler-case
+      (let* ((cmd (if (uiop:os-windows-p)
+                      (list "where.exe" name)
+                      (list "sh" "-c" (format nil "command -v ~A" name))))
+             (out (uiop:run-program cmd :ignore-error-status t :output :string :error-output :string))
+             (trimmed (and (stringp out)
+                           (string-trim '(#\Space #\Tab #\Newline #\Return) out))))
+        (when (and trimmed (> (length trimmed) 0))
+          (first (remove-if #'(lambda (line) (zerop (length line)))
+                            (mapcar #'(lambda (line)
+                                        (string-trim '(#\Space #\Tab #\Newline #\Return) line))
+                                    (uiop:split-string trimmed :separator '(#\Newline #\Return)))))))
+    (error ()
+      nil)))
+
 (defun read-file-bytes (path)
   "Read PATH into a vector of (unsigned-byte 8)."
   (with-open-file (stream path :direction :input :element-type '(unsigned-byte 8))
@@ -38,13 +55,7 @@
 
 (defun program-exists-p (name)
   "Return true if NAME is found on PATH."
-  (handler-case
-      (let* ((cmd (list "sh" "-c" (format nil "command -v ~A" name)))
-             (out (uiop:run-program cmd :ignore-error-status t :output :string :error-output :string)))
-        (and (stringp out)
-             (> (length (string-trim '(#\Space #\Tab #\Newline) out)) 0)))
-    (error ()
-      nil)))
+  (not (null (resolve-command-path name))))
 
 (defun display-available-p ()
   "Return true if a GUI display is available."
