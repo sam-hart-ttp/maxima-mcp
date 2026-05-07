@@ -345,6 +345,7 @@ Batch mode statelessness:
 
 - `batch` mode is stateless: each tool call runs in a fresh Maxima process, so assignments, assumptions, dependencies, and custom derivative rules do not persist across calls.
 - If you need state to persist between calls, use `MAXIMA_MCP_SUBPROCESS_MODE=interactive`, or have the client track state and re-send it with each request.
+- Symbolic preflight warnings account for this: in `batch` mode, prior `assume` calls are not treated as effective for later symbolic calls.
 
 ## License
 

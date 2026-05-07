@@ -233,12 +233,26 @@
   "Return warning text if TOOL-NAME should warn due to missing assumptions."
   (when (member tool-name *symbolic-preflight-tools* :test #'string=)
     (incf *symbolic-call-total*)
-    (when (<= (mcp-session-assumption-count session) 0)
+    (when (or (batch-subprocess-mode-p)
+              (<= (mcp-session-assumption-count session) 0))
       (incf *symbolic-calls-without-assumptions*)
       (incf *symbolic-preflight-warnings*)
-      (format nil
-              "Preflight warning: no explicit assumptions in session. Before symbolic ~A, consider assume(a>0, b>0, ...) to avoid sign ambiguity and asksign stalls."
-              tool-name))))
+      (if (batch-subprocess-mode-p)
+          (format nil
+                  "Preflight warning: subprocess batch mode is stateless, so prior assume calls do not persist. Include assumptions in the same expression or use interactive/library mode before symbolic ~A to avoid sign ambiguity and asksign stalls."
+                  tool-name)
+          (format nil
+                  "Preflight warning: no explicit assumptions in session. Before symbolic ~A, consider assume(a>0, b>0, ...) to avoid sign ambiguity and asksign stalls."
+                  tool-name)))))
+
+(defun batch-subprocess-mode-p ()
+  "Return T when using the stateless subprocess batch backend."
+  (let ((mode-symbol (find-symbol "*MAXIMA-SUBPROCESS-MODE*" :maxima-mcp)))
+    (and (fboundp 'using-subprocess-p)
+         (using-subprocess-p)
+         mode-symbol
+         (boundp mode-symbol)
+         (string= (symbol-value mode-symbol) "batch"))))
 
 (defun inject-preflight-warning (result warning-text)
   "Prepend WARNING-TEXT to successful tool RESULT content."
