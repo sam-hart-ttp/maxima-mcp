@@ -27,6 +27,7 @@ sbcl --load build-standalone.lisp
 ```
 
 This creates the `maxima-mcp` executable in the project root.
+On Windows the output name is `maxima-mcp.exe`.
 
 #### Build Tuning (SBCL)
 
@@ -45,6 +46,12 @@ set `MAXIMA_MCP_USE_CORE=1`:
 ```bash
 MAXIMA_MCP_USE_CORE=1 sbcl --load build-standalone.lisp
 ```
+
+#### Windows Notes
+
+- The SBCL build scripts configure the Maxima source tree for Windows before compiling.
+- The Python client searches for `maxima-mcp.exe`, `maxima-mcp.bat`, and `maxima-mcp.cmd` on Windows.
+- Subprocess mode resolves `maxima`, `maxima.exe`, `maxima.bat`, or `maxima.cmd`; set `MAXIMA_MCP_SUBPROCESS_COMMAND` if Maxima is installed in a non-standard location.
 
 ### ECL (Standalone)
 
@@ -134,10 +141,11 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"evaluate",
 - Topic docs return two content entries:
   - `text/markdown` narrative docs
   - `application/json` structured metadata (`source`, `topic`, `hasLocalDocs`, `apropos`, and markdown copy)
-- Topic docs use local `./doc` files when available, with `apropos(name)` fallback.
-- Optional local overrides are supported from `./doc`:
+- Topic docs use explicit local override files when available, with `apropos(name)` fallback.
+- Optional local overrides are supported from:
   - `doc/<topic>.md`, `doc/topics/<topic>.md`
   - `doc/<topic>.txt`, `doc/topics/<topic>.txt`
+- The broader Maxima texinfo tree under `doc/info/` is not indexed by this resource layer yet.
 
 ## Available Tools
 
@@ -232,6 +240,8 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"evaluate",
 - `cons` - Construct lists
 - `facts` - List assumptions
 - `kill` - Kill variables/properties
+- `declare` - Declare variable properties
+- `properties` - List properties associated with a symbol
 - `float` - Floating-point evaluation
 - `bfloat` - Bigfloat evaluation
 
@@ -274,6 +284,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"evaluate",
 - `assume` - Add mathematical assumption
 - `forget` - Remove assumption
 - `list_assumptions` - List current assumptions
+- `set_format` - Set the session default output format
 - `reset` - Reset session state
 - `clear` - Clear variables
 
@@ -296,11 +307,23 @@ A Python client is included in `clients/python/`:
 ```python
 from maxima_mcp import MaximaMCPClient
 
-client = MaximaMCPClient("/path/to/maxima-mcp")
+client = MaximaMCPClient(server_path="/path/to/maxima-mcp")
 result = client.differentiate("x^3", "x")
 print(result)  # 3*x^2
 client.close()
 ```
+
+The client also honors `MAXIMA_MCP_SERVER` and drains stderr in a background
+thread to avoid subprocess deadlocks.
+
+## Testing
+
+```bash
+XDG_CACHE_HOME=/tmp sbcl --load src/mcp/test.lisp --quit
+```
+
+The test runner covers the subprocess backend, core tool behavior, protocol
+initialization, tool listing, tool calls, and MCP documentation resources.
 
 ## Output Formats
 
